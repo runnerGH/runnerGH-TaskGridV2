@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest>
+  <control namespace="Contoso" constructor="TaskGridControl"
+           version="1.0.0" display-name-key="Task Grid Control"
+           description-key="Editable hierarchical task grid"
+           control-type="standard">
+
+    <data-set name="TaskDataSet" display-name-key="Task Dataset">
+      <property-set name="taskName"     display-name-key="Task Name"
+                    of-type="SingleLine.Text"      usage="bound" required="true" />
+      <property-set name="parentTaskId" display-name-key="Parent Task"
+                    of-type="Lookup.Simple"        usage="bound" required="false" />
+      <property-set name="startDate"    display-name-key="Start Date"
+                    of-type="DateAndTime.DateOnly" usage="bound" required="false" />
+      <property-set name="endDate"      display-name-key="End Date"
+                    of-type="DateAndTime.DateOnly" usage="bound" required="false" />
+      <property-set name="pctDone"      display-name-key="% Complete"
+                    of-type="Decimal"              usage="bound" required="false" />
+      <property-set name="isSummary"    display-name-key="Is Summary"
+                    of-type="TwoOptions"           usage="bound" required="false" />
+    </data-set>
+
+    <resources>
+      <code path="index.ts" order="1" />
+    </resources>
+  </control>
+</manifest>
