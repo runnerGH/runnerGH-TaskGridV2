@@ -6,18 +6,44 @@
            control-type="standard">
 
     <data-set name="TaskDataSet" display-name-key="Task Dataset">
-      <property-set name="taskName"     display-name-key="Task Name"
+      <property-set name="taskName"         display-name-key="Task Name"
                     of-type="SingleLine.Text"      usage="bound" required="true" />
-      <property-set name="parentTaskId" display-name-key="Parent Task"
+      <property-set name="parentTaskId"     display-name-key="Parent Task"
                     of-type="Lookup.Simple"        usage="bound" required="false" />
-      <property-set name="startDate"    display-name-key="Start Date"
+      <property-set name="startDate"        display-name-key="Start Date"
                     of-type="DateAndTime.DateOnly" usage="bound" required="false" />
-      <property-set name="endDate"      display-name-key="End Date"
+      <property-set name="endDate"          display-name-key="End Date"
                     of-type="DateAndTime.DateOnly" usage="bound" required="false" />
-      <property-set name="pctDone"      display-name-key="% Complete"
+      <property-set name="pctDone"          display-name-key="% Complete"
                     of-type="Decimal"              usage="bound" required="false" />
-      <property-set name="isSummary"    display-name-key="Is Summary"
+      <property-set name="isSummary"        display-name-key="Is Summary"
                     of-type="TwoOptions"           usage="bound" required="false" />
+      <property-set name="costCategory"     display-name-key="Cost Category"
+                    of-type="OptionSet"            usage="bound" required="false" />
+      <property-set name="srcService"       display-name-key="SRC Service"
+                    of-type="Lookup.Simple"        usage="bound" required="false" />
+      <property-set name="fiscalYear"       display-name-key="Fiscal Year"
+                    of-type="Lookup.Simple"        usage="bound" required="false" />
+      <property-set name="quantity"         display-name-key="Effort"
+                    of-type="Decimal"              usage="bound" required="false" />
+      <property-set name="unitRate"         display-name-key="Unit Rate"
+                    of-type="Currency"             usage="bound" required="false" />
+      <property-set name="unit"             display-name-key="Unit"
+                    of-type="SingleLine.Text"      usage="bound" required="false" />
+      <property-set name="frequency"        display-name-key="Frequency"
+                    of-type="SingleLine.Text"      usage="bound" required="false" />
+      <property-set name="plannedCost"      display-name-key="Planned Cost"
+                    of-type="Currency"             usage="bound" required="false" />
+      <property-set name="fixedCost"        display-name-key="Fixed Cost"
+                    of-type="Currency"             usage="bound" required="false" />
+      <property-set name="totalPlannedCost" display-name-key="Total Planned Cost"
+                    of-type="Currency"             usage="bound" required="false" />
+      <property-set name="actualCost"       display-name-key="Actual Cost"
+                    of-type="Currency"             usage="bound" required="false" />
+      <property-set name="remainingCost"    display-name-key="Remaining Cost"
+                    of-type="Currency"             usage="bound" required="false" />
+      <property-set name="earnedValue"      display-name-key="Earned Value"
+                    of-type="Currency"             usage="bound" required="false" />
     </data-set>
 
     <resources>
