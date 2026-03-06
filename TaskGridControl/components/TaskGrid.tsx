@@ -138,7 +138,16 @@ const CSS = `
     padding: 10px 12px; border-bottom: 1px solid #e5e7eb;
     border-right: 1px solid #f3f4f6; text-align: left;
     position: sticky; top: 0; z-index: 2; white-space: nowrap; user-select: none;
+    overflow: hidden;
   }
+  .tg-resize-handle {
+    position: absolute;
+    right: 0; top: 0; bottom: 0; width: 5px;
+    cursor: col-resize; user-select: none; touch-action: none;
+    background: transparent; z-index: 3;
+  }
+  .tg-resize-handle:hover { background: #0078d4; opacity: 0.5; }
+  .tg-resize-handle.is-resizing { background: #0078d4; opacity: 1; }
   .tg-table th.th-right { text-align: right; }
   .tg-table th:last-child { border-right: none; }
   .tg-expand-btn {
@@ -229,6 +238,13 @@ const CSS = `
     color: #323130;
   }
   .tg-col-footer button:hover { background: #f3f2f1; }
+  .tg-table.is-resizing { cursor: col-resize; user-select: none; }
+  .tg-table.is-resizing td { pointer-events: none; }
+  .tg-th-dragging   { opacity: 0.4; cursor: grabbing; }
+  .tg-th-drop-left  { border-left: 2px solid #0078d4 !important; }
+  .tg-th-drop-right { border-right: 2px solid #0078d4 !important; }
+  .tg-table th { cursor: grab; }
+  .tg-table th.th-nodrag { cursor: default; }
 `;
 
 function ChevronRight() {
@@ -530,7 +546,30 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId }: Props
     } catch {}
     return new Set(DEFAULT_VISIBLE);
   });
+  const orderKey = `tg-order-${userId}`;
+  const [columnOrder, setColumnOrder] = React.useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(orderKey);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [];
+  });
+  const [dragColId,   setDragColId]   = React.useState<string | null>(null);
+  const [dropColId,   setDropColId]   = React.useState<string | null>(null);
   const [colPanelOpen, setColPanelOpen]   = React.useState(false);
+  const sizingKey = `tg-sizing-${userId}`;
+  const [columnSizing, setColumnSizing] = React.useState<Record<string, number>>(() => {
+    try {
+      const stored = localStorage.getItem(sizingKey);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return {};
+  });
+
+  // Persist sizing changes
+  React.useEffect(() => {
+    try { localStorage.setItem(sizingKey, JSON.stringify(columnSizing)); } catch {}
+  }, [columnSizing]);
   const [colPanelPos,  setColPanelPos]    = React.useState({ top: 0, left: 0 });
   const colBtnRef = React.useRef<HTMLButtonElement>(null);
 
@@ -717,6 +756,7 @@ function onActualCostChange(row: TaskNode, actual: number) {
   // ── Schedule ──────────────────────────────────────────────────────────────
   col.accessor("taskName", {
     header: "Task name", size: 240,
+    enableResizing: true,
     cell: function TaskNameCell({ row, getValue }) {
       const isSummary = row.original.isSummary;
       return (
@@ -928,14 +968,15 @@ const columnVisibility = React.useMemo(() => {
     return vis;
   }, [visibleCols]);
 
-  const table = useReactTable({
+const table = useReactTable({
     data, columns,
-    state: { expanded, columnVisibility },
-    onExpandedChange: setExpanded,
-    getSubRows:          row => row.subRows,
-    getCoreRowModel:     getCoreRowModel(),
-    getExpandedRowModel: getExpandedRowModel(),
-  });
+    state:                { expanded, columnVisibility, columnOrder },
+    onExpandedChange:     setExpanded,
+    onColumnOrderChange:  setColumnOrder,
+    getSubRows:           row => row.subRows,
+    getCoreRowModel:      getCoreRowModel(),
+    getExpandedRowModel:  getExpandedRowModel(),
+});
 
   const changesCount = Object.keys(pending).length;
 
@@ -994,6 +1035,24 @@ function toggleColumn(id: string) {
     setVisibleCols(all);
     try { localStorage.setItem(storageKey, JSON.stringify([...all])); } catch {}
   }
+
+    function reorderColumn(dragId: string, dropId: string) {
+        if (dragId === dropId || dragId === "taskName") return;
+        const currentOrder = columnOrder.length > 0
+        ? columnOrder
+        : table.getAllLeafColumns().map(c => c.id);
+        const next = [...currentOrder];
+        const fromIdx = next.indexOf(dragId);
+        const toIdx   = next.indexOf(dropId);
+        if (fromIdx === -1 || toIdx === -1) return;
+        next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, dragId);
+        // Ensure taskName always first
+        const tnIdx = next.indexOf("taskName");
+        if (tnIdx > 0) { next.splice(tnIdx, 1); next.unshift("taskName"); }
+        setColumnOrder(next);
+        try { localStorage.setItem(orderKey, JSON.stringify(next)); } catch {}
+    }
 
   const rightCols = new Set(["plannedCost","fixedCost","totalPlannedCost",
     "actualCost","remainingCost","earnedValue","unitRate","quantity"]);
@@ -1078,10 +1137,14 @@ function toggleColumn(id: string) {
           ))}
 
           <div className="tg-col-divider" />
-          <div className="tg-col-footer">
-            <button onClick={showAllColumns}>Show all</button>
-            <button onClick={() => setColPanelOpen(false)}>Close</button>
-          </div>
+            <div className="tg-col-footer">
+                <button onClick={showAllColumns}>Show all</button>
+                <button onClick={() => {
+                    setColumnOrder([]);
+                    try { localStorage.removeItem(orderKey); } catch {}
+                }}>Reset order</button>
+                <button onClick={() => setColPanelOpen(false)}>Close</button>
+            </div>
         </div>,
         document.body
       )}
@@ -1090,17 +1153,54 @@ function toggleColumn(id: string) {
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
 
       <div className="tg-scroll">
-        <table className="tg-table">
+         <table className={`tg-table${table.getState().columnSizingInfo.isResizingColumn ? " is-resizing" : ""}`}>
           <thead>
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
-                {hg.headers.map(h => (
-                  <th key={h.id}
-                    className={rightCols.has(h.column.id) ? "th-right" : ""}
-                    style={{ width: h.getSize(), minWidth: h.getSize() }}>
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                  </th>
-                ))}
+{hg.headers.map(h => {
+                  const isLocked  = h.column.id === "taskName";
+                  const isDragging = dragColId === h.column.id;
+                  const isDropTarget = dropColId === h.column.id;
+                  return (
+                    <th key={h.id}
+                      className={[
+                        rightCols.has(h.column.id) ? "th-right" : "",
+                        isLocked    ? "th-nodrag"     : "",
+                        isDragging  ? "tg-th-dragging" : "",
+                        isDropTarget && !isLocked ? "tg-th-drop-left" : "",
+                      ].filter(Boolean).join(" ")}
+                      style={{ width: h.getSize(), minWidth: h.getSize() }}
+                      draggable={!isLocked}
+                      onDragStart={e => {
+                        if (isLocked) return;
+                        setDragColId(h.column.id);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={e => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (!isLocked && h.column.id !== dragColId) {
+                          setDropColId(h.column.id);
+                        }
+                      }}
+                      onDragLeave={() => setDropColId(null)}
+                      onDrop={e => {
+                        e.preventDefault();
+                        if (dragColId && !isLocked) {
+                          reorderColumn(dragColId, h.column.id);
+                        }
+                        setDragColId(null);
+                        setDropColId(null);
+                      }}
+                      onDragEnd={() => {
+                        setDragColId(null);
+                        setDropColId(null);
+                      }}
+                    >
+                      {flexRender(h.column.columnDef.header, h.getContext())}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
