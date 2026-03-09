@@ -26,6 +26,8 @@ interface FlatTask {
   fixedCost:        number;
   totalPlannedCost: number;
   actualCost:       number;
+  actualFixedCost:  number;
+  totalActualCost:  number;
   remainingCost:    number;
   earnedValue:      number;
 }
@@ -59,6 +61,8 @@ function buildTreeByGuid(flat: FlatTask[]): TaskNode[] {
       fixedCost:        r.fixedCost,
       totalPlannedCost: r.totalPlannedCost,
       actualCost:       r.actualCost,
+      actualFixedCost:  r.actualFixedCost  ?? 0,
+      totalActualCost:  r.totalActualCost  ?? 0,
       remainingCost:    r.remainingCost,
       earnedValue:      r.earnedValue,
       subRows:          [],
@@ -127,7 +131,9 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
   const quantity         = Number(rec.getValue("quantity")         ?? 0);
   const unitRate         = Number(rec.getValue("unitRate")         ?? 0);
   const fixedCost        = Number(rec.getValue("fixedCost")        ?? 0);
-  const actualCost       = Number(rec.getValue("actualCost")       ?? 0);
+  const actualCost       = Number(rec.getValue("actualCost")      ?? 0);
+  const actualFixedCost  = Number(rec.getValue("actualFixedCost") ?? 0);
+  const totalActualCost  = Number(rec.getValue("totalActualCost") ?? 0);
   const pctDone          = Number(rec.getValue("pctDone")          ?? 0) * 100;
 
   // Read plannedCost from Dataverse calculated field
@@ -159,6 +165,8 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
     fixedCost,
     totalPlannedCost,
     actualCost,
+    actualFixedCost,
+    totalActualCost,
     remainingCost,
     earnedValue,
   };
@@ -201,6 +209,7 @@ private async saveToDataverse(
     if (fields.unitRate   !== undefined) payload["pmo_unitrate"]     = fields.unitRate;
     if (fields.fixedCost  !== undefined) payload["pmo_fixedcost"]    = fields.fixedCost;
     if (fields.actualCost !== undefined) payload["cred8_actualcost"] = fields.actualCost;
+    if (fields.actualFixedCost !== undefined) payload["pmo_actualfixedcost"] = fields.actualFixedCost;
     if (fields.unit       !== undefined) payload["pmo_unit"]         = fields.unit;
     if (fields.frequency  !== undefined) payload["pmo_frequency"]    = fields.frequency;
 

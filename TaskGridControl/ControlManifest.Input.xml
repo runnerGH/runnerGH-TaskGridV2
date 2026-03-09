@@ -44,8 +44,13 @@
                     of-type="Currency"             usage="bound" required="false" />
       <property-set name="earnedValue"      display-name-key="Earned Value"
                     of-type="Currency"             usage="bound" required="false" />
+      <property-set name="actualFixedCost"  display-name-key="Actual Fixed Cost"
+                    description-key="Actual Fixed Cost" of-type="Currency"
+                    usage="bound"                                required="false" />
+      <property-set name="totalActualCost"  display-name-key="Total Actual Cost"
+                    description-key="Total Actual Cost" of-type="Currency"
+                    usage="bound"                                required="false" />                   
     </data-set>
-
     <resources>
       <code path="index.ts" order="1" />
     </resources>

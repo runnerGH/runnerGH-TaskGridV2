@@ -28,22 +28,23 @@ const COST_CATEGORIES = [
 ];
 
 const ALL_COLUMNS = [
-  { id: "startDate",        label: "Start",          group: "schedule" },
-  { id: "endDate",          label: "Finish",          group: "schedule" },
-  { id: "pctDone",          label: "% Complete",      group: "schedule" },
-  { id: "costCategory",     label: "Cost category",   group: "cost" },
-  { id: "fiscalYearName",   label: "FY",              group: "cost" },
-  { id: "srcServiceName",   label: "Service",         group: "cost" },
-  { id: "quantity",         label: "Effort (h)",      group: "cost" },
-  { id: "unit",             label: "Unit",            group: "cost" },
-  { id: "unitRate",         label: "Unit rate",       group: "cost" },
-  { id: "plannedCost",      label: "Planned cost",    group: "cost" },
-  { id: "fixedCost",        label: "Fixed cost",      group: "cost" },
-  { id: "totalPlannedCost", label: "Total planned",   group: "cost" },
-  { id: "actualCost",       label: "Actual cost",     group: "cost" },
-  { id: "remainingCost",    label: "Remaining",       group: "cost" },
-  { id: "earnedValue",      label: "Earned value",    group: "cost" },
-  { id: "assignedTo",       label: "Assigned to",     group: "schedule" },
+  { id: "startDate",        label: "Start",              group: "schedule" },
+  { id: "endDate",          label: "Finish",             group: "schedule" },
+  { id: "pctDone",          label: "% Complete",         group: "schedule" },
+  { id: "assignedTo",       label: "Assigned to",        group: "schedule" },
+  { id: "costCategory",     label: "Cost category",      group: "cost" },
+  { id: "srcServiceName",   label: "Service",            group: "cost" },
+  { id: "quantity",         label: "Effort (h)",         group: "cost" },
+  { id: "unit",             label: "Unit",               group: "cost" },
+  { id: "unitRate",         label: "Unit rate",          group: "cost" },
+  { id: "plannedCost",      label: "Planned cost",       group: "cost" },
+  { id: "fixedCost",        label: "Fixed cost",         group: "cost" },
+  { id: "totalPlannedCost", label: "Total planned",      group: "cost" },
+  { id: "actualCost",       label: "Actual effort cost", group: "cost" },
+  { id: "actualFixedCost",  label: "Actual fixed cost",  group: "cost" },
+  { id: "totalActualCost",  label: "Total actual cost",  group: "cost" },
+  { id: "remainingCost",    label: "Remaining",          group: "cost" },
+  { id: "earnedValue",      label: "Earned value",       group: "cost" },
 ] as const;
 
 const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.map(c => c.id));
@@ -59,11 +60,6 @@ interface SrcItem {
   fiscalYearName: string | null;
   entityId:       string | null;
   entityName:     string | null;
-}
-
-interface FyItem {
-  id:   string;
-  name: string;
 }
 
 interface EntityItem {
@@ -606,7 +602,6 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const [savedMsg, setSavedMsg]     = React.useState(false);
   const [hoveredRow, setHoveredRow] = React.useState<string | null>(null);
   const [srcItems, setSrcItems]     = React.useState<SrcItem[]>([]);
-  const [fyItems, setFyItems]       = React.useState<FyItem[]>([]);
   const [entityItems, setEntityItems] = React.useState<EntityItem[]>([]);
   const [taskResources, setTaskResources] = React.useState<TaskResourceMap>({});
   const [loadError, setLoadError]   = React.useState<string | null>(null);
@@ -650,7 +645,15 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const [colPanelPos,  setColPanelPos]    = React.useState({ top: 0, left: 0 });
   const colBtnRef = React.useRef<HTMLButtonElement>(null);
 
-  //React.useEffect(() => { setData(initialData); }, [initialData]);
+    const [refreshCount, setRefreshCount] = React.useState(0);
+
+    React.useEffect(() => {
+        if (Object.keys(pending).length === 0) {
+        setData(initialData);
+        setRefreshCount(c => c + 1);
+        }
+    }, [initialData]);
+
     // Expand first level on initial load
     React.useEffect(() => {
     if (initialData.length === 0) return;
@@ -661,26 +664,6 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     }, [initialData.length > 0]);
 
   React.useEffect(() => {
-    // Load Fiscal Years
-    fetch("/api/data/v9.2/pmo_fiscalyear1s?$select=pmo_fiscalyear1id,pmo_id&$orderby=pmo_id asc")
-      .then(r => {
-        if (!r.ok) throw new Error(`FY load failed: ${r.status} ${r.statusText}`);
-        return r.json();
-      })
-      .then(d => {
-        const items: FyItem[] = (d.value || []).map((r: any) => {
-            // Try both casings defensively
-            const id   = r.pmo_fiscalyear1id || r.pmo_FiscalYear1Id || "";
-            const name = r.pmo_id            || r.pmo_ID            || "";
-            return { id, name };
-        });
-        setFyItems(items);
-        })
-      .catch(e => {
-        console.error("[TaskGrid] FY load error:", e);
-        setLoadError("Could not load Fiscal Years: " + e.message);
-      });
-
     // Load Entities
     fetch("/api/data/v9.2/pmo_entities?$select=pmo_entityid,pmo_name&$filter=statecode eq 0&$orderby=pmo_name asc")
       .then(r => {
@@ -730,10 +713,10 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const resolvedSrcItems = React.useMemo(() => {
     return srcItems.map(s => ({
       ...s,
-      fiscalYearName: fyItems.find(f => f.id === s.fiscalYearId)?.name ?? null,
+      fiscalYearName: null, // FY resolved from SRC name display only
       entityName:     entityItems.find(e => e.id === s.entityId)?.name ?? null,
     }));
-  }, [srcItems, fyItems, entityItems]);
+  }, [srcItems, entityItems]);
 
 // Load resource assignments using known task IDs
   React.useEffect(() => {
@@ -770,7 +753,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
       });
       setTaskResources(taskMap);
     }).catch(e => console.error("[TaskGrid] Resource load error:", e));
-  }, [taskIds.join(",")]);
+    }, [taskIds.join(","), refreshCount]);
 
   // Close column panel on outside click
   React.useEffect(() => {
@@ -804,20 +787,23 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     setPending(p => ({ ...p, [recordId]: { ...(p[recordId] ?? {}), ...updates } }));
   }
 
-  function recalc(row: TaskNode, overrides: Partial<TaskNode>): Partial<TaskNode> {
-    const qty      = overrides.quantity         ?? row.quantity         ?? 0;
-    const rate     = overrides.unitRate         ?? row.unitRate         ?? 0;
-    const fixed    = overrides.fixedCost        ?? row.fixedCost        ?? 0;
-    const actual   = overrides.actualCost       ?? row.actualCost       ?? 0;
-    const pct      = overrides.pctDone          ?? row.pctDone          ?? 0;
-    const planned  = qty * rate;
-    const total    = planned + fixed;
-    const remaining = total - actual;
-    const ev       = (pct / 100) * total;
+function recalc(row: TaskNode, overrides: Partial<TaskNode>): Partial<TaskNode> {
+    const qty         = overrides.quantity        ?? row.quantity        ?? 0;
+    const rate        = overrides.unitRate        ?? row.unitRate        ?? 0;
+    const fixed       = overrides.fixedCost       ?? row.fixedCost       ?? 0;
+    const actual      = overrides.actualCost      ?? row.actualCost      ?? 0;
+    const actualFixed = overrides.actualFixedCost ?? row.actualFixedCost ?? 0;
+    const pct         = overrides.pctDone         ?? row.pctDone         ?? 0;
+    const planned     = qty * rate;
+    const total       = planned + fixed;
+    const totalActual = actual + actualFixed;
+    const remaining   = total - totalActual;
+    const ev          = (pct / 100) * total;
     return {
       ...overrides,
       plannedCost:      planned,
       totalPlannedCost: total,
+      totalActualCost:  totalActual,
       remainingCost:    remaining,
       earnedValue:      ev,
     };
@@ -878,13 +864,18 @@ function onActualCostChange(row: TaskNode, actual: number) {
       }
       return null;
     }
-    const current   = findNode(prev) ?? row;
-    const total     = current.totalPlannedCost ?? 0;
-    const remaining = total - actual;
-    const ev        = (current.pctDone / 100) * total;
+    const current     = findNode(prev) ?? row;
+    const total       = current.totalPlannedCost  ?? 0;
+    const actualFixed = current.actualFixedCost   ?? 0;
+    const totalActual = actual + actualFixed;
+    const remaining   = total - totalActual;
+    const ev          = (current.pctDone / 100) * total;
 
     const updates: Partial<TaskNode> = {
-      actualCost: actual, remainingCost: remaining, earnedValue: ev,
+      actualCost:      actual,
+      totalActualCost: totalActual,
+      remainingCost:   remaining,
+      earnedValue:     ev,
     };
     setPending(p => ({ ...p, [row.recordId]: { ...(p[row.recordId] ?? {}), ...updates } }));
     let next = prev;
@@ -894,6 +885,37 @@ function onActualCostChange(row: TaskNode, actual: number) {
     return next;
   });
 }
+
+function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
+    setData(prev => {
+      function findNode(nodes: TaskNode[]): TaskNode | null {
+        for (const n of nodes) {
+          if (n.recordId === row.recordId) return n;
+          if (n.subRows) { const f = findNode(n.subRows); if (f) return f; }
+        }
+        return null;
+      }
+      const current     = findNode(prev) ?? row;
+      const total       = current.totalPlannedCost ?? 0;
+      const actual      = current.actualCost       ?? 0;
+      const totalActual = actual + actualFixed;
+      const remaining   = total - totalActual;
+      const ev          = (current.pctDone / 100) * total;
+
+      const updates: Partial<TaskNode> = {
+        actualFixedCost: actualFixed,
+        totalActualCost: totalActual,
+        remainingCost:   remaining,
+        earnedValue:     ev,
+      };
+      setPending(p => ({ ...p, [row.recordId]: { ...(p[row.recordId] ?? {}), ...updates } }));
+      let next = prev;
+      for (const [field, val] of Object.entries(updates)) {
+        next = updateNodeInTree(next, row.recordId, field as keyof TaskNode, val);
+      }
+      return next;
+    });
+  }
 
   const columns = React.useMemo(() => [
 
@@ -969,29 +991,6 @@ function onActualCostChange(row: TaskNode, actual: number) {
         </select>
       );
     },
-  }),
-    col.accessor("fiscalYearName", {
-        header: "FY", size: 70,
-        cell: function FyCell({ row }) {
-        if (row.original.isSummary) return <span className="tg-dash">—</span>;
-        return (
-            <select className="tg-select" style={{ maxWidth: 80 }}
-            value={row.original.fiscalYearId ?? ""}
-            onChange={e => {
-                const id = e.target.value;
-                const fy = fyItems.find(f => f.id === id);
-                applyUpdates(row.original.recordId, {
-                fiscalYearId:   id,
-                fiscalYearName: fy?.name ?? "",
-                });
-            }}>
-            <option value="">—</option>
-            {fyItems.map(f => (
-                <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-            </select>
-        );
-        },
   }),
 col.accessor("srcServiceName", {
   header: "Service", size: 220,
@@ -1075,7 +1074,7 @@ col.accessor("quantity", {
     },
   }),
   col.accessor("actualCost", {
-    header: "Actual cost", size: 100,
+    header: "Actual effort cost", size: 120,
     cell: function ActualCell({ row }) {
       // Summary: show rolled-up total, read-only
       if (row.original.isSummary) {
@@ -1087,6 +1086,33 @@ col.accessor("quantity", {
       }
       return <CurrencyInput value={row.original.actualCost}
         onChange={v => onActualCostChange(row.original, v)} />;
+    },
+  }),
+  col.accessor("actualFixedCost", {
+    header: "Actual fixed cost", size: 120,
+    cell: function ActualFixedCell({ row }) {
+      if (row.original.isSummary) {
+        return (
+          <span className="tg-cell-right" style={{ fontWeight: 600 }}>
+            {fmtCurrency(row.original.actualFixedCost)}
+          </span>
+        );
+      }
+      return <CurrencyInput value={row.original.actualFixedCost ?? 0}
+        onChange={v => onActualFixedCostChange(row.original, v)} />;
+    },
+  }),
+  col.accessor("totalActualCost", {
+    header: "Total actual cost", size: 120,
+    cell: function TotalActualCell({ row }) {
+      return (
+        <span className="tg-cell-right" style={{
+          fontWeight: row.original.isSummary ? 700 : 500,
+          color: "#0f766e",
+        }}>
+          {fmtCurrency(Number(row.original.totalActualCost ?? 0))}
+        </span>
+      );
     },
   }),
   col.accessor("remainingCost", {
@@ -1114,7 +1140,7 @@ col.accessor("quantity", {
     );
   },
 }),
-], [resolvedSrcItems, fyItems, taskResources]);
+], [resolvedSrcItems, taskResources]);
 
 const columnVisibility = React.useMemo(() => {
     const vis: Record<string, boolean> = {};
@@ -1134,17 +1160,19 @@ const table = useReactTable({
 
   const changesCount = Object.keys(pending).length;
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await onSave(pending);
-      setPending({});
-      setSavedMsg(true);
-      setTimeout(() => setSavedMsg(false), 2500);
-    } finally {
-      setSaving(false);
+    async function handleSave() {
+        setSaving(true);
+        try {
+        await onSave(pending);
+        setPending({});
+        setSavedMsg(true);
+        setTimeout(() => setSavedMsg(false), 2500);
+        // Auto-refresh after save so Dataverse calculated fields update
+        setTimeout(() => onRefresh(), 3000);
+        } finally {
+        setSaving(false);
+        }
     }
-  }
 
   function toggleExpandAll() {
   if (allExpanded) {
@@ -1208,8 +1236,8 @@ function toggleColumn(id: string) {
         try { localStorage.setItem(orderKey, JSON.stringify(next)); } catch {}
     }
 
-  const rightCols = new Set(["plannedCost","fixedCost","totalPlannedCost",
-    "actualCost","remainingCost","earnedValue","unitRate","quantity"]);
+    const rightCols = new Set(["plannedCost","fixedCost","totalPlannedCost",
+    "actualCost","actualFixedCost","totalActualCost","remainingCost","earnedValue","unitRate","quantity"]);
 
   return (
     <div className="tg-wrap">

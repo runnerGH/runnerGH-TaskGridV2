@@ -25,9 +25,11 @@ export interface TaskNode {
   fixedCost:        number;
   totalPlannedCost: number;
   actualCost:       number;
+  actualFixedCost:  number;
+  totalActualCost:  number;
   remainingCost:    number;
   earnedValue:      number;
-
+  
   subRows?: TaskNode[];
 }
 
@@ -84,6 +86,8 @@ export function rollupCosts(nodes: TaskNode[]): TaskNode[] {
       fixedCost:        sum("fixedCost"),
       totalPlannedCost: sum("totalPlannedCost"),
       actualCost:       sum("actualCost"),
+      actualFixedCost:  sum("actualFixedCost"),
+      totalActualCost:  sum("totalActualCost"),
       remainingCost:    sum("remainingCost"),
       earnedValue:      sum("earnedValue"),
     };
