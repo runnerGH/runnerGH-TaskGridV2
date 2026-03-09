@@ -167,12 +167,23 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
     const tree       = buildTreeByGuid(flat);
     const rolledUp   = rollupCosts(tree);
 
+    // Extract project ID from first task record
+    const firstId = context.parameters.TaskDataSet.sortedRecordIds[0];
+    const projectId = firstId
+      ? String((context.parameters.TaskDataSet.records[firstId] as any)
+          .raw?._msdyn_project_value ?? "")
+      : "";
+
+    // Collect all task record IDs for resource assignment filtering
+    const taskIds = context.parameters.TaskDataSet.sortedRecordIds;
+
     ReactDOM.render(
       React.createElement(TaskGrid, {
         data:      rolledUp,
         onSave:    this.saveToDataverse.bind(this),
         onRefresh: () => context.parameters.TaskDataSet.refresh(),
         userId:    context.userSettings.userId,
+        taskIds,
       }),
       this.container
     );

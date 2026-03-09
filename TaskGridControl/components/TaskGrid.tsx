@@ -15,6 +15,7 @@ interface Props {
   onSave:    (changes: Record<string, Partial<TaskNode>>) => Promise<void>;
   onRefresh: () => void;
   userId:    string;
+  taskIds:   string[];
 }
 
 const COST_CATEGORIES = [
@@ -42,24 +43,41 @@ const ALL_COLUMNS = [
   { id: "actualCost",       label: "Actual cost",     group: "cost" },
   { id: "remainingCost",    label: "Remaining",       group: "cost" },
   { id: "earnedValue",      label: "Earned value",    group: "cost" },
+  { id: "assignedTo",       label: "Assigned to",     group: "schedule" },
 ] as const;
 
 const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.map(c => c.id));
 
 interface SrcItem {
-  id:          string;
-  serviceId:   string;
-  name:        string;
-  price:       number;
-  unit:        string;
-  frequency:   string;
-  fiscalYearId: string | null;
+  id:             string;
+  serviceId:      string;
+  name:           string;
+  price:          number;
+  unit:           string;
+  frequency:      string;
+  fiscalYearId:   string | null;
+  fiscalYearName: string | null;
+  entityId:       string | null;
+  entityName:     string | null;
 }
 
 interface FyItem {
   id:   string;
   name: string;
 }
+
+interface EntityItem {
+  id:   string;
+  name: string;
+}
+
+interface ResourceItem {
+  id:   string;
+  name: string;
+}
+
+// taskId → array of resource names
+type TaskResourceMap = Record<string, ResourceItem[]>;
 
 const col = createColumnHelper<TaskNode>();
 
@@ -245,6 +263,17 @@ const CSS = `
   .tg-th-drop-right { border-right: 2px solid #0078d4 !important; }
   .tg-table th { cursor: grab; }
   .tg-table th.th-nodrag { cursor: default; }
+  .tg-avatars { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; }
+  .tg-avatar-row { display: flex; align-items: center; gap: 6px; }
+  .tg-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #0078d4; color: white;
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; letter-spacing: 0.02em;
+  }
+  .tg-avatar-name { font-size: 12px; color: #374151; white-space: nowrap; 
+    overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
 `;
 
 function ChevronRight() {
@@ -292,6 +321,41 @@ function ProgressCell({ value }: { value: number }) {
         <div className="tg-progress-fill" style={{ width: `${pct}%`, background: color }} />
       </div>
       <span className="tg-progress-label">{pct.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+const AVATAR_COLORS = [
+  "#0078d4","#107c10","#8764b8","#d83b01",
+  "#038387","#b4009e","#004e8c","#498205",
+];
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function ResourceCell({ resources }: { resources: ResourceItem[] }) {
+  if (!resources || resources.length === 0) {
+    return <span className="tg-dash">—</span>;
+  }
+  return (
+    <div className="tg-avatars">
+      {resources.map(r => (
+        <div key={r.id} className="tg-avatar-row">
+          <div className="tg-avatar" style={{ background: getColor(r.name) }}>
+            {getInitials(r.name)}
+          </div>
+          <span className="tg-avatar-name">{r.name}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -366,12 +430,11 @@ function ServiceCombobox({ value, items, onChange }: {
   items: SrcItem[];
   onChange: (id: string, item: SrcItem) => void;
 }) {
-  const [open, setOpen]     = React.useState(false);
-  const [query, setQuery]   = React.useState("");
-  const triggerRef          = React.useRef<HTMLDivElement>(null);
+  const [open, setOpen]       = React.useState(false);
+  const [query, setQuery]     = React.useState("");
+  const triggerRef            = React.useRef<HTMLDivElement>(null);
   const [dropPos, setDropPos] = React.useState({ top: 0, left: 0, width: 0 });
 
-  // Position the dropdown based on trigger position
   function openDropdown() {
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
@@ -406,12 +469,16 @@ function ServiceCombobox({ value, items, onChange }: {
   const selected = items.find(s => s.id === value);
   const filtered = query.trim() === ""
     ? items
-    : items.filter(s =>
-        s.serviceId.toLowerCase().includes(query.toLowerCase()) ||
-        s.name.toLowerCase().includes(query.toLowerCase())
-      );
+    : items.filter(s => {
+        const q = query.toLowerCase();
+        return (
+          s.serviceId.toLowerCase().includes(q)              ||
+          s.name.toLowerCase().includes(q)                   ||
+          (s.fiscalYearName ?? "").toLowerCase().includes(q) ||
+          (s.entityName     ?? "").toLowerCase().includes(q)
+        );
+      });
 
-  // Portal dropdown — rendered outside scroll container
   const dropdown = open ? (
     <div
       id="tg-service-portal"
@@ -419,13 +486,13 @@ function ServiceCombobox({ value, items, onChange }: {
         position: "absolute",
         top:      dropPos.top,
         left:     dropPos.left,
-        width:    Math.max(dropPos.width, 280),
+        width:    Math.max(dropPos.width, 300),
         background: "white",
         border: "1px solid #e5e7eb",
         borderRadius: 4,
         boxShadow: "0 4px 16px rgba(0,0,0,0.14)",
         zIndex: 99999,
-        maxHeight: 300,
+        maxHeight: 320,
         display: "flex",
         flexDirection: "column",
       }}
@@ -433,7 +500,7 @@ function ServiceCombobox({ value, items, onChange }: {
       <div style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
         <input
           autoFocus
-          placeholder="Search services..."
+          placeholder="Search by service, FY or entity..."
           value={query}
           onChange={e => setQuery(e.target.value)}
           style={{
@@ -444,8 +511,7 @@ function ServiceCombobox({ value, items, onChange }: {
           onClick={e => e.stopPropagation()}
         />
       </div>
-      <div style={{ overflowY: "auto", maxHeight: 240 }}>
-        {/* Clear option */}
+      <div style={{ overflowY: "auto", maxHeight: 260 }}>
         <div
           onClick={() => { onChange("", {} as SrcItem); setOpen(false); setQuery(""); }}
           style={{
@@ -476,12 +542,22 @@ function ServiceCombobox({ value, items, onChange }: {
                 if (s.id !== value) (e.currentTarget as HTMLDivElement).style.background = "#f9fafb";
               }}
               onMouseLeave={e => {
-                if (s.id !== value) (e.currentTarget as HTMLDivElement).style.background =
+                (e.currentTarget as HTMLDivElement).style.background =
                   s.id === value ? "#eff6ff" : "white";
               }}
             >
-              <div style={{ fontWeight: 500, fontSize: 12 }}>{s.serviceId}</div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>{s.name}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 500, fontSize: 12 }}>{s.serviceId}</span>
+                <span style={{ fontSize: 11, color: "#0078d4" }}>
+                  {[s.fiscalYearName, s.entityName].filter(Boolean).join(" · ")}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 1 }}>
+                <span style={{ fontSize: 11, color: "#6b7280" }}>{s.name}</span>
+                <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>
+                  {fmtCurrency(s.price)}/{s.unit}
+                </span>
+              </div>
             </div>
           ))
         )}
@@ -491,7 +567,6 @@ function ServiceCombobox({ value, items, onChange }: {
 
   return (
     <React.Fragment>
-      {/* Trigger button */}
       <div
         ref={triggerRef}
         onClick={openDropdown}
@@ -505,15 +580,15 @@ function ServiceCombobox({ value, items, onChange }: {
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-          {selected ? `${selected.serviceId} – ${selected.name}` : "— select service —"}
+          {selected
+            ? `${selected.serviceId} – ${selected.name}${selected.fiscalYearName ? ` (${selected.fiscalYearName})` : ""}`
+            : "— select service —"}
         </span>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
           stroke="#6b7280" strokeWidth="2.5" style={{ flexShrink: 0, marginLeft: 4 }}>
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </div>
-
-      {/* Portal — appended to document.body to escape overflow:hidden */}
       {dropdown && typeof document !== "undefined"
         ? ReactDOM.createPortal(dropdown, document.body)
         : null}
@@ -521,7 +596,7 @@ function ServiceCombobox({ value, items, onChange }: {
   );
 }
 
-export function TaskGrid({ data: initialData, onSave, onRefresh, userId }: Props) {
+export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds }: Props) {
   const [data, setData]             = React.useState<TaskNode[]>(initialData);
   //const [expanded, setExpanded]     = React.useState<ExpandedState>({ "0": true });
   const [allExpanded, setAllExpanded] = React.useState(false);
@@ -532,6 +607,8 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId }: Props
   const [hoveredRow, setHoveredRow] = React.useState<string | null>(null);
   const [srcItems, setSrcItems]     = React.useState<SrcItem[]>([]);
   const [fyItems, setFyItems]       = React.useState<FyItem[]>([]);
+  const [entityItems, setEntityItems] = React.useState<EntityItem[]>([]);
+  const [taskResources, setTaskResources] = React.useState<TaskResourceMap>({});
   const [loadError, setLoadError]   = React.useState<string | null>(null);
 
 // Column visibility
@@ -604,21 +681,42 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId }: Props
         setLoadError("Could not load Fiscal Years: " + e.message);
       });
 
-    // Load SRC — include fiscal year lookup
-    fetch("/api/data/v9.2/pmo_serviceratecards?$select=pmo_serviceratecardid,pmo_serviceid,pmo_servicename,pmo_price,pmo_unit,pmo_frequency&$orderby=pmo_serviceid asc&$top=500")
+    // Load Entities
+    fetch("/api/data/v9.2/pmo_entities?$select=pmo_entityid,pmo_name&$filter=statecode eq 0&$orderby=pmo_name asc")
+      .then(r => {
+        if (!r.ok) throw new Error(`Entity load failed: ${r.status} ${r.statusText}`);
+        return r.json();
+      })
+      .then(d => {
+        const items: EntityItem[] = (d.value || []).map((r: any) => ({
+          id:   r.pmo_entityid,
+          name: r.pmo_name,
+        }));
+        setEntityItems(items);
+      })
+      .catch(e => {
+        console.error("[TaskGrid] Entity load error:", e);
+        // Non-fatal — entity names just won't show
+      });
+
+    // Load SRC with FY and Entity GUIDs
+    fetch("/api/data/v9.2/pmo_serviceratecards?$select=pmo_serviceratecardid,pmo_serviceid,pmo_servicename,pmo_price,pmo_unit,pmo_frequency,_pmo_fiscalyear_value,_pmo_entity_value&$filter=statecode eq 0&$orderby=pmo_serviceid asc&$top=500")
       .then(r => {
         if (!r.ok) throw new Error(`SRC load failed: ${r.status} ${r.statusText}`);
         return r.json();
       })
       .then(d => {
         const items: SrcItem[] = (d.value || []).map((r: any) => ({
-        id:           r.pmo_serviceratecardid,
-        serviceId:    r.pmo_serviceid,
-        name:         r.pmo_servicename,
-        price:        r.pmo_price,
-        unit:         r.pmo_unit,
-        frequency:    r.pmo_frequency,
-        fiscalYearId: null,
+          id:             r.pmo_serviceratecardid,
+          serviceId:      r.pmo_serviceid,
+          name:           r.pmo_servicename,
+          price:          r.pmo_price,
+          unit:           r.pmo_unit,
+          frequency:      r.pmo_frequency,
+          fiscalYearId:   r._pmo_fiscalyear_value ?? null,
+          fiscalYearName: null,
+          entityId:       r._pmo_entity_value     ?? null,
+          entityName:     null,
         }));
         setSrcItems(items);
       })
@@ -627,6 +725,52 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId }: Props
         setLoadError("Could not load Service Rate Card: " + e.message);
       });
   }, []);
+
+  // Resolve FY and Entity names client-side
+  const resolvedSrcItems = React.useMemo(() => {
+    return srcItems.map(s => ({
+      ...s,
+      fiscalYearName: fyItems.find(f => f.id === s.fiscalYearId)?.name ?? null,
+      entityName:     entityItems.find(e => e.id === s.entityId)?.name ?? null,
+    }));
+  }, [srcItems, fyItems, entityItems]);
+
+// Load resource assignments using known task IDs
+  React.useEffect(() => {
+    if (!taskIds || taskIds.length === 0) return;
+
+    // Build OData filter: _msdyn_taskid_value eq 'id1' or _msdyn_taskid_value eq 'id2'...
+    // Dataverse supports up to ~100 conditions — chunk if needed
+    const chunk = taskIds.slice(0, 80);
+    const filter = chunk
+      .map(id => `_msdyn_taskid_value eq ${id}`)
+      .join(" or ");
+
+    Promise.all([
+      fetch(`/api/data/v9.2/msdyn_resourceassignments?$select=_msdyn_taskid_value,_msdyn_bookableresourceid_value&$filter=${encodeURIComponent(filter)}&$top=500`)
+        .then(r => r.ok ? r.json() : { value: [] }),
+      fetch(`/api/data/v9.2/bookableresources?$select=bookableresourceid,name`)
+        .then(r => r.ok ? r.json() : { value: [] }),
+    ]).then(([assignments, resources]) => {
+      const resourceMap: Record<string, string> = {};
+      (resources.value || []).forEach((r: any) => {
+        resourceMap[r.bookableresourceid] = r.name;
+      });
+
+      const taskMap: TaskResourceMap = {};
+      (assignments.value || []).forEach((a: any) => {
+        const taskId     = a._msdyn_taskid_value;
+        const resourceId = a._msdyn_bookableresourceid_value;
+        const name       = resourceMap[resourceId];
+        if (!taskId || !name) return;
+        if (!taskMap[taskId]) taskMap[taskId] = [];
+        if (!taskMap[taskId].find(r => r.id === resourceId)) {
+          taskMap[taskId].push({ id: resourceId, name });
+        }
+      });
+      setTaskResources(taskMap);
+    }).catch(e => console.error("[TaskGrid] Resource load error:", e));
+  }, [taskIds.join(",")]);
 
   // Close column panel on outside click
   React.useEffect(() => {
@@ -796,6 +940,17 @@ function onActualCostChange(row: TaskNode, actual: number) {
     },
   }),
 
+  col.display({
+    id: "assignedTo",
+    header: "Assigned to",
+    size: 180,
+    cell: function AssignedCell({ row }) {
+      if (row.original.isSummary) return <span className="tg-dash">—</span>;
+      const resources = taskResources[row.original.recordId] ?? [];
+      return <ResourceCell resources={resources} />;
+    },
+  }),
+
   // ── Cost — input fields hidden on summary rows ────────────────────────────
   col.accessor("costCategory", {
     header: "Cost category", size: 160,
@@ -815,40 +970,39 @@ function onActualCostChange(row: TaskNode, actual: number) {
       );
     },
   }),
-  col.accessor("fiscalYearName", {
-    header: "FY", size: 70,
-    cell: function FyCell({ row }) {
-      // Summary: show dash
-      if (row.original.isSummary) return <span className="tg-dash">—</span>;
-      return (
-        <select className="tg-select" style={{ maxWidth: 80 }}
-          value={row.original.fiscalYearId ?? ""}
-          onChange={e => {
-            const id = e.target.value;
-            const fy = fyItems.find(f => f.id === id);
-            applyUpdates(row.original.recordId, {
-              fiscalYearId:   id,
-              fiscalYearName: fy?.name ?? "",
-            });
-          }}>
-          <option value="">—</option>
-          {fyItems.map(f => (
-            <option key={f.id} value={f.id}>{f.name}</option>
-          ))}
-        </select>
-      );
-    },
+    col.accessor("fiscalYearName", {
+        header: "FY", size: 70,
+        cell: function FyCell({ row }) {
+        if (row.original.isSummary) return <span className="tg-dash">—</span>;
+        return (
+            <select className="tg-select" style={{ maxWidth: 80 }}
+            value={row.original.fiscalYearId ?? ""}
+            onChange={e => {
+                const id = e.target.value;
+                const fy = fyItems.find(f => f.id === id);
+                applyUpdates(row.original.recordId, {
+                fiscalYearId:   id,
+                fiscalYearName: fy?.name ?? "",
+                });
+            }}>
+            <option value="">—</option>
+            {fyItems.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+            </select>
+        );
+        },
   }),
 col.accessor("srcServiceName", {
   header: "Service", size: 220,
   cell: function SrcCell({ row }) {
     if (row.original.isSummary) return <span className="tg-dash">—</span>;
     return (
-      <ServiceCombobox
-        value={row.original.srcServiceId}
-        items={srcItems}
-        onChange={(id, src) => onSrcChange(row.original, id)}
-      />
+        <ServiceCombobox
+            value={row.original.srcServiceId}
+            items={resolvedSrcItems}
+            onChange={(id, src) => onSrcChange(row.original, id)}
+        />
     );
   },
 }),
@@ -960,7 +1114,7 @@ col.accessor("quantity", {
     );
   },
 }),
-], [srcItems, fyItems]);
+], [resolvedSrcItems, fyItems, taskResources]);
 
 const columnVisibility = React.useMemo(() => {
     const vis: Record<string, boolean> = {};
@@ -1153,7 +1307,7 @@ function toggleColumn(id: string) {
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
 
       <div className="tg-scroll">
-         <table className={`tg-table${table.getState().columnSizingInfo.isResizingColumn ? " is-resizing" : ""}`}>
+         <table className="tg-table">
           <thead>
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
