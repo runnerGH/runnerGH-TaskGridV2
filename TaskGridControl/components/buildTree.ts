@@ -24,9 +24,11 @@ export interface TaskNode {
   plannedCost:      number;
   fixedCost:        number;
   totalPlannedCost: number;
+  effortCompleted:  number;
   actualCost:       number;
   actualFixedCost:  number;
   totalActualCost:  number;
+  fundingSource:    number | null;
   remainingCost:    number;
   earnedValue:      number;
   
@@ -85,6 +87,7 @@ export function rollupCosts(nodes: TaskNode[]): TaskNode[] {
       plannedCost:      sum("plannedCost"),
       fixedCost:        sum("fixedCost"),
       totalPlannedCost: sum("totalPlannedCost"),
+      effortCompleted:  sum("effortCompleted"),
       actualCost:       sum("actualCost"),
       actualFixedCost:  sum("actualFixedCost"),
       totalActualCost:  sum("totalActualCost"),

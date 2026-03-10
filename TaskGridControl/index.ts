@@ -25,11 +25,13 @@ interface FlatTask {
   plannedCost:      number;
   fixedCost:        number;
   totalPlannedCost: number;
+  effortCompleted:  number;
   actualCost:       number;
   actualFixedCost:  number;
   totalActualCost:  number;
   remainingCost:    number;
   earnedValue:      number;
+  fundingSource:    number | null;
 }
 
 function buildTreeByGuid(flat: FlatTask[]): TaskNode[] {
@@ -65,6 +67,8 @@ function buildTreeByGuid(flat: FlatTask[]): TaskNode[] {
       totalActualCost:  r.totalActualCost  ?? 0,
       remainingCost:    r.remainingCost,
       earnedValue:      r.earnedValue,
+      fundingSource:    r.fundingSource,
+      effortCompleted:  r.effortCompleted,
       subRows:          [],
     };
     map.set(r.recordId, node);
@@ -129,18 +133,22 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
   const fiscalYearName = fyRef?.name ?? null;
 
   const quantity         = Number(rec.getValue("quantity")         ?? 0);
-  const unitRate         = Number(rec.getValue("unitRate")         ?? 0);
   const fixedCost        = Number(rec.getValue("fixedCost")        ?? 0);
-  const actualCost       = Number(rec.getValue("actualCost")      ?? 0);
-  const actualFixedCost  = Number(rec.getValue("actualFixedCost") ?? 0);
-  const totalActualCost  = Number(rec.getValue("totalActualCost") ?? 0);
+  const effortCompleted  = Number(rec.getValue("effortCompleted")  ?? 0);
+  const unitRate         = Number(rec.getValue("unitRate")         ?? 0);
+  const actualCost       = effortCompleted * unitRate;
+  const actualFixedCost  = Number(rec.getValue("actualFixedCost")  ?? 0);
+  const totalActualCost  = actualCost + actualFixedCost;
+  const fundingSource    = rec.getValue("fundingSource") != null
+    ? Number(rec.getValue("fundingSource")) : null;
   const pctDone          = Number(rec.getValue("pctDone")          ?? 0) * 100;
 
-  // Read plannedCost from Dataverse calculated field
-  const plannedCost      = Number(rec.getValue("plannedCost")      ?? 0);
-  const totalPlannedCost = Number(rec.getValue("totalPlannedCost") ?? 0);
-  const remainingCost    = Number(rec.getValue("remainingCost")  ?? 0);
-  const earnedValue      = Number(rec.getValue("earnedValue")    ?? 0);
+  const plannedCost      = quantity * unitRate;
+  const totalPlannedCost = plannedCost + fixedCost;
+  const remainingCost    = totalPlannedCost - totalActualCost;
+  const earnedValue      = (pctDone / 100) * totalPlannedCost;
+
+
 
   return {
     recordId:         id,
@@ -164,11 +172,13 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
     plannedCost,
     fixedCost,
     totalPlannedCost,
+    effortCompleted,
     actualCost,
     actualFixedCost,
     totalActualCost,
     remainingCost,
     earnedValue,
+    fundingSource,
   };
 });
 
@@ -205,13 +215,19 @@ private async saveToDataverse(
   const requests = Object.entries(changes).map(async ([recordId, fields]) => {
     const payload: Record<string, unknown> = {};
 
-    if (fields.taskName   !== undefined) payload["msdyn_subject"]    = fields.taskName;
-    if (fields.unitRate   !== undefined) payload["pmo_unitrate"]     = fields.unitRate;
-    if (fields.fixedCost  !== undefined) payload["pmo_fixedcost"]    = fields.fixedCost;
-    if (fields.actualCost !== undefined) payload["cred8_actualcost"] = fields.actualCost;
-    if (fields.actualFixedCost !== undefined) payload["pmo_actualfixedcost"] = fields.actualFixedCost;
-    if (fields.unit       !== undefined) payload["pmo_unit"]         = fields.unit;
-    if (fields.frequency  !== undefined) payload["pmo_frequency"]    = fields.frequency;
+  if (fields.taskName        !== undefined) payload["msdyn_subject"]        = fields.taskName;
+  if (fields.unitRate        !== undefined) payload["pmo_unitrate"]         = fields.unitRate;
+  if (fields.fixedCost       !== undefined) payload["pmo_fixedcost"]        = fields.fixedCost;
+  if (fields.actualCost      !== undefined) payload["cred8_actualcost"]     = fields.actualCost;
+  if (fields.actualFixedCost !== undefined) payload["pmo_actualfixedcost"]  = fields.actualFixedCost;
+  if (fields.plannedCost     !== undefined) payload["pmo_plannedcost"]      = fields.plannedCost;
+  if (fields.totalPlannedCost !== undefined) payload["pmo_totalplannedcost"] = fields.totalPlannedCost;
+  if (fields.totalActualCost !== undefined) payload["pmo_totalactualcost"]  = fields.totalActualCost;
+  if (fields.remainingCost   !== undefined) payload["pmo_remainingcost"]    = fields.remainingCost;
+  if (fields.earnedValue     !== undefined) payload["pmo_earnedvalue"]      = fields.earnedValue;
+  if (fields.unit            !== undefined) payload["pmo_unit"]             = fields.unit;
+  if (fields.frequency       !== undefined) payload["pmo_frequency"]        = fields.frequency;
+  if (fields.fundingSource !== undefined) payload["pmo_fundingsource"] = fields.fundingSource;
 
     if (fields.costCategory !== undefined) {
       payload["cred8_costcategory"] = fields.costCategory;

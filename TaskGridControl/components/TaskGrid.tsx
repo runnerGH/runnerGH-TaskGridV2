@@ -27,14 +27,24 @@ const COST_CATEGORIES = [
   { value: 847020005, label: "Indirect Costs" },
 ];
 
+const FUNDING_SOURCES = [
+  { value: 0, label: "Regular Budget" },
+  { value: 1, label: "Support Account" },
+  { value: 2, label: "xB" },
+  { value: 3, label: "10RCR (Cost Recovery)" },
+  { value: 4, label: "20PCR (PK Cost Recovery)" },
+];
+
 const ALL_COLUMNS = [
   { id: "startDate",        label: "Start",              group: "schedule" },
   { id: "endDate",          label: "Finish",             group: "schedule" },
   { id: "pctDone",          label: "% Complete",         group: "schedule" },
   { id: "assignedTo",       label: "Assigned to",        group: "schedule" },
+  { id: "fundingSource",    label: "Funding source",     group: "cost" },
   { id: "costCategory",     label: "Cost category",      group: "cost" },
   { id: "srcServiceName",   label: "Service",            group: "cost" },
   { id: "quantity",         label: "Effort (h)",         group: "cost" },
+  { id: "effortCompleted",  label: "Completed (h)",      group: "cost" },
   { id: "unit",             label: "Unit",               group: "cost" },
   { id: "unitRate",         label: "Unit rate",          group: "cost" },
   { id: "plannedCost",      label: "Planned cost",       group: "cost" },
@@ -45,6 +55,7 @@ const ALL_COLUMNS = [
   { id: "totalActualCost",  label: "Total actual cost",  group: "cost" },
   { id: "remainingCost",    label: "Remaining",          group: "cost" },
   { id: "earnedValue",      label: "Earned value",       group: "cost" },
+  { id: "fundingSource",    label: "Funding source",     group: "cost" },
 ] as const;
 
 const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.map(c => c.id));
@@ -791,10 +802,12 @@ function recalc(row: TaskNode, overrides: Partial<TaskNode>): Partial<TaskNode> 
     const qty         = overrides.quantity        ?? row.quantity        ?? 0;
     const rate        = overrides.unitRate        ?? row.unitRate        ?? 0;
     const fixed       = overrides.fixedCost       ?? row.fixedCost       ?? 0;
-    const actual      = overrides.actualCost      ?? row.actualCost      ?? 0;
+    const completed   = overrides.effortCompleted ?? row.effortCompleted ?? 0;
     const actualFixed = overrides.actualFixedCost ?? row.actualFixedCost ?? 0;
     const pct         = overrides.pctDone         ?? row.pctDone         ?? 0;
+    console.log("[recalc] pct=", pct, "fixed=", fixed, "rate=", rate, "qty=", qty);
     const planned     = qty * rate;
+    const actual      = completed * rate;  // actualCost = effortCompleted × unitRate
     const total       = planned + fixed;
     const totalActual = actual + actualFixed;
     const remaining   = total - totalActual;
@@ -802,6 +815,7 @@ function recalc(row: TaskNode, overrides: Partial<TaskNode>): Partial<TaskNode> 
     return {
       ...overrides,
       plannedCost:      planned,
+      actualCost:       actual,
       totalPlannedCost: total,
       totalActualCost:  totalActual,
       remainingCost:    remaining,
@@ -827,7 +841,6 @@ function recalc(row: TaskNode, overrides: Partial<TaskNode>): Partial<TaskNode> 
 
 function onFixedCostChange(row: TaskNode, fixed: number) {
   setData(prev => {
-    // Find the latest version of this row from current state
     function findNode(nodes: TaskNode[]): TaskNode | null {
       for (const n of nodes) {
         if (n.recordId === row.recordId) return n;
@@ -835,48 +848,8 @@ function onFixedCostChange(row: TaskNode, fixed: number) {
       }
       return null;
     }
-    const current  = findNode(prev) ?? row;
-    const planned  = current.plannedCost  ?? 0;
-    const actual   = current.actualCost   ?? 0;
-    const total    = planned + fixed;
-    const remaining = total - actual;
-    const ev       = (current.pctDone / 100) * total;
-
-    const updates: Partial<TaskNode> = {
-      fixedCost: fixed, totalPlannedCost: total,
-      remainingCost: remaining, earnedValue: ev,
-    };
-    setPending(p => ({ ...p, [row.recordId]: { ...(p[row.recordId] ?? {}), ...updates } }));
-    let next = prev;
-    for (const [field, val] of Object.entries(updates)) {
-      next = updateNodeInTree(next, row.recordId, field as keyof TaskNode, val);
-    }
-    return next;
-  });
-}
-
-function onActualCostChange(row: TaskNode, actual: number) {
-  setData(prev => {
-    function findNode(nodes: TaskNode[]): TaskNode | null {
-      for (const n of nodes) {
-        if (n.recordId === row.recordId) return n;
-        if (n.subRows) { const f = findNode(n.subRows); if (f) return f; }
-      }
-      return null;
-    }
-    const current     = findNode(prev) ?? row;
-    const total       = current.totalPlannedCost  ?? 0;
-    const actualFixed = current.actualFixedCost   ?? 0;
-    const totalActual = actual + actualFixed;
-    const remaining   = total - totalActual;
-    const ev          = (current.pctDone / 100) * total;
-
-    const updates: Partial<TaskNode> = {
-      actualCost:      actual,
-      totalActualCost: totalActual,
-      remainingCost:   remaining,
-      earnedValue:     ev,
-    };
+    const current = findNode(prev) ?? row;
+    const updates = recalc(current, { fixedCost: fixed });
     setPending(p => ({ ...p, [row.recordId]: { ...(p[row.recordId] ?? {}), ...updates } }));
     let next = prev;
     for (const [field, val] of Object.entries(updates)) {
@@ -887,35 +860,24 @@ function onActualCostChange(row: TaskNode, actual: number) {
 }
 
 function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
-    setData(prev => {
-      function findNode(nodes: TaskNode[]): TaskNode | null {
-        for (const n of nodes) {
-          if (n.recordId === row.recordId) return n;
-          if (n.subRows) { const f = findNode(n.subRows); if (f) return f; }
-        }
-        return null;
+  setData(prev => {
+    function findNode(nodes: TaskNode[]): TaskNode | null {
+      for (const n of nodes) {
+        if (n.recordId === row.recordId) return n;
+        if (n.subRows) { const f = findNode(n.subRows); if (f) return f; }
       }
-      const current     = findNode(prev) ?? row;
-      const total       = current.totalPlannedCost ?? 0;
-      const actual      = current.actualCost       ?? 0;
-      const totalActual = actual + actualFixed;
-      const remaining   = total - totalActual;
-      const ev          = (current.pctDone / 100) * total;
-
-      const updates: Partial<TaskNode> = {
-        actualFixedCost: actualFixed,
-        totalActualCost: totalActual,
-        remainingCost:   remaining,
-        earnedValue:     ev,
-      };
-      setPending(p => ({ ...p, [row.recordId]: { ...(p[row.recordId] ?? {}), ...updates } }));
-      let next = prev;
-      for (const [field, val] of Object.entries(updates)) {
-        next = updateNodeInTree(next, row.recordId, field as keyof TaskNode, val);
-      }
-      return next;
-    });
-  }
+      return null;
+    }
+    const current = findNode(prev) ?? row;
+    const updates = recalc(current, { actualFixedCost: actualFixed });
+    setPending(p => ({ ...p, [row.recordId]: { ...(p[row.recordId] ?? {}), ...updates } }));
+    let next = prev;
+    for (const [field, val] of Object.entries(updates)) {
+      next = updateNodeInTree(next, row.recordId, field as keyof TaskNode, val);
+    }
+    return next;
+  });
+}
 
   const columns = React.useMemo(() => [
 
@@ -974,6 +936,23 @@ function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
   }),
 
   // ── Cost — input fields hidden on summary rows ────────────────────────────
+  col.accessor("fundingSource", {
+    header: "Funding source", size: 160,
+    cell: function FundingCell({ row }) {
+      if (row.original.isSummary) return <span className="tg-dash">—</span>;
+      return (
+        <select className="tg-select"
+          value={row.original.fundingSource ?? ""}
+          onChange={e => updateField(row.original.recordId, "fundingSource",
+            e.target.value === "" ? null : Number(e.target.value))}>
+          <option value="">— select —</option>
+          {FUNDING_SOURCES.map(f => (
+            <option key={f.value} value={f.value}>{f.label}</option>
+          ))}
+        </select>
+      );
+    },
+  }),
   col.accessor("costCategory", {
     header: "Cost category", size: 160,
     cell: function CatCell({ row }) {
@@ -1016,6 +995,17 @@ col.accessor("quantity", {
     );
   },
 }),
+col.accessor("effortCompleted", {
+    header: "Completed (h)", size: 90,
+    cell: function CompletedCell({ row }) {
+      if (row.original.isSummary) return <span className="tg-dash">—</span>;
+      return (
+        <span className="tg-cell-right" style={{ color: "#6b7280" }}>
+          {fmtNumber(row.original.effortCompleted ?? 0)}
+        </span>
+      );
+    },
+  }),
   col.accessor("unit", {
     header: "Unit", size: 60,
     cell: function UnitCell({ row }) {
@@ -1073,19 +1063,15 @@ col.accessor("quantity", {
       );
     },
   }),
-  col.accessor("actualCost", {
+col.accessor("actualCost", {
     header: "Actual effort cost", size: 120,
     cell: function ActualCell({ row }) {
-      // Summary: show rolled-up total, read-only
-      if (row.original.isSummary) {
-        return (
-          <span className="tg-cell-right" style={{ fontWeight: 600 }}>
-            {fmtCurrency(row.original.actualCost)}
-          </span>
-        );
-      }
-      return <CurrencyInput value={row.original.actualCost}
-        onChange={v => onActualCostChange(row.original, v)} />;
+      return (
+        <span className="tg-cell-right"
+          style={{ fontWeight: row.original.isSummary ? 700 : 500 }}>
+          {fmtCurrency(Number(row.original.actualCost ?? 0))}
+        </span>
+      );
     },
   }),
   col.accessor("actualFixedCost", {
@@ -1168,7 +1154,7 @@ const table = useReactTable({
         setSavedMsg(true);
         setTimeout(() => setSavedMsg(false), 2500);
         // Auto-refresh after save so Dataverse calculated fields update
-        setTimeout(() => onRefresh(), 3000);
+        setTimeout(() => onRefresh(), 1500);
         } finally {
         setSaving(false);
         }
