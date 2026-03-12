@@ -313,6 +313,61 @@ const CSS = `
   .tg-th-drop-right { border-right: 2px solid #0078d4 !important; }
   .tg-table th { cursor: grab; }
   .tg-table th.th-nodrag { cursor: default; }
+  .tg-filter-panel {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 300px; background: white; z-index: 100;
+    border-left: 1px solid #e5e7eb;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.10);
+    display: flex; flex-direction: column;
+    animation: slideIn 0.2s ease;
+  }
+  @keyframes slideIn {
+    from { transform: translateX(300px); }
+    to   { transform: translateX(0); }
+  }
+  .tg-filter-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
+  }
+  .tg-filter-title { font-size: 16px; font-weight: 600; color: #1f2937; }
+  .tg-filter-clearall {
+    font-size: 13px; color: #107c10; cursor: pointer; font-weight: 500;
+    background: none; border: none; padding: 0;
+  }
+  .tg-filter-clearall:hover { text-decoration: underline; }
+  .tg-filter-close {
+    background: none; border: none; cursor: pointer; color: #605e5c;
+    font-size: 18px; line-height: 1; padding: 0 0 0 8px;
+  }
+  .tg-filter-close:hover { color: #1f2937; }
+  .tg-filter-search {
+    margin: 12px 16px; border: 2px solid #107c10; border-radius: 2px;
+    padding: 6px 10px; font-size: 13px; width: calc(100% - 32px);
+    box-sizing: border-box; outline: none;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+  .tg-filter-body { overflow-y: auto; flex: 1; padding-bottom: 16px; }
+  .tg-filter-section { border-bottom: 1px solid #f3f4f6; }
+  .tg-filter-section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; cursor: pointer; user-select: none;
+    font-size: 13px; font-weight: 600; color: #1f2937;
+  }
+  .tg-filter-section-header:hover { background: #f9fafb; }
+  .tg-filter-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 16px 6px 24px; cursor: pointer;
+    font-size: 13px; color: #374151;
+  }
+  .tg-filter-item:hover { background: #f3f2f1; }
+  .tg-filter-item input[type="checkbox"] {
+    width: 14px; height: 14px; cursor: pointer; accent-color: #107c10;
+  }
+  .tg-filter-count { margin-left: auto; color: #9ca3af; font-size: 12px; }
+  .tg-filter-badge {
+    background: #107c10; color: white; border-radius: 10px;
+    padding: 1px 6px; font-size: 10px; font-weight: 700; margin-left: 4px;
+  }
   .tg-avatars { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; }
   .tg-avatar-row { display: flex; align-items: center; gap: 6px; }
   .tg-avatar {
@@ -706,6 +761,16 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
 
     const [refreshCount, setRefreshCount] = React.useState(0);
 
+    const [filterOpen, setFilterOpen]         = React.useState(false);
+    const [filterKeyword, setFilterKeyword]   = React.useState("");
+    const [filterFunding, setFilterFunding]   = React.useState<Set<number>>(new Set());
+    const [filterCategory, setFilterCategory] = React.useState<Set<number>>(new Set());
+    const [filterAssignee, setFilterAssignee] = React.useState<Set<string>>(new Set());
+    const [filterService, setFilterService] = React.useState<Set<string>>(new Set());
+    const [sectionOpen, setSectionOpen] = React.useState<Record<string, boolean>>({
+      funding: true, category: true, service: true, assignee: true,
+    });
+
     React.useEffect(() => {
         if (Object.keys(pending).length === 0) {
         setData(initialData);
@@ -931,6 +996,92 @@ function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
     return next;
   });
 }
+
+// Flatten all leaf nodes for counting
+  function flattenLeaves(nodes: TaskNode[]): TaskNode[] {
+    const result: TaskNode[] = [];
+    function walk(n: TaskNode) {
+      if (!n.subRows || n.subRows.length === 0) { result.push(n); return; }
+      n.subRows.forEach(walk);
+    }
+    nodes.forEach(walk);
+    return result;
+  }
+
+  const allLeaves = React.useMemo(() => flattenLeaves(data), [data]);
+
+  const fundingCounts = React.useMemo(() => {
+    const counts: Record<number, number> = {};
+    allLeaves.forEach(n => {
+      if (n.fundingSource != null) {
+        counts[n.fundingSource] = (counts[n.fundingSource] ?? 0) + 1;
+      }
+    });
+    return counts;
+  }, [allLeaves]);
+
+  const categoryCounts = React.useMemo(() => {
+    const counts: Record<number, number> = {};
+    allLeaves.forEach(n => {
+      if (n.costCategory != null) {
+        counts[n.costCategory] = (counts[n.costCategory] ?? 0) + 1;
+      }
+    });
+    return counts;
+  }, [allLeaves]);
+
+  const serviceCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    allLeaves.forEach(n => {
+      if (n.srcServiceName) {
+        counts[n.srcServiceName] = (counts[n.srcServiceName] ?? 0) + 1;
+      }
+    });
+    return counts;
+  }, [allLeaves]);
+
+  const assigneeCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    allLeaves.forEach(n => {
+      const resources = taskResources[n.recordId] ?? [];
+      resources.forEach(r => {
+        counts[r.name] = (counts[r.name] ?? 0) + 1;
+      });
+    });
+    return counts;
+  }, [allLeaves, taskResources]);
+
+  const totalActiveFilters =
+    filterFunding.size + filterCategory.size +
+    filterAssignee.size + filterService.size + (filterKeyword.trim() ? 1 : 0);
+
+  function isLeafVisible(node: TaskNode): boolean {
+    if (filterKeyword.trim()) {
+      if (!node.taskName.toLowerCase().includes(filterKeyword.toLowerCase())) return false;
+    }
+    if (filterFunding.size > 0) {
+      if (node.fundingSource == null || !filterFunding.has(node.fundingSource)) return false;
+    }
+    if (filterCategory.size > 0) {
+      if (node.costCategory == null || !filterCategory.has(node.costCategory)) return false;
+    }
+    if (filterAssignee.size > 0) {
+      const names = (taskResources[node.recordId] ?? []).map(r => r.name);
+      if (!names.some(n => filterAssignee.has(n))) return false;
+    }
+    if (filterService.size > 0) {
+      if (!node.srcServiceName || !filterService.has(node.srcServiceName)) return false;
+    }
+    return true;
+  }
+
+function clearAllFilters() {
+    setFilterKeyword("");
+    setFilterFunding(new Set());
+    setFilterCategory(new Set());
+    setFilterAssignee(new Set());
+    setFilterService(new Set());
+  }
 
   const columns = React.useMemo(() => [
 
@@ -1315,6 +1466,18 @@ function toggleColumn(id: string) {
   <button ref={colBtnRef} className="tg-btn" onClick={openColPanel}>
     <ColumnsIcon />Columns
   </button>
+
+  <button className="tg-btn" onClick={() => setFilterOpen(o => !o)}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+    </svg>
+    Filter
+    {totalActiveFilters > 0 && (
+      <span className="tg-filter-badge">{totalActiveFilters}</span>
+    )}
+  </button>
+
   <div style={{ flex: 1 }} />
   {changesCount > 0 && !savedMsg && (
     <React.Fragment>
@@ -1376,6 +1539,123 @@ function toggleColumn(id: string) {
 
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
 
+      {filterOpen && (
+        <div className="tg-filter-panel">
+          <div className="tg-filter-header">
+            <span className="tg-filter-title">Filter Tasks</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {totalActiveFilters > 0 && (
+                <button className="tg-filter-clearall" onClick={clearAllFilters}>
+                  Clear All
+                </button>
+              )}
+              <button className="tg-filter-close" onClick={() => setFilterOpen(false)}>✕</button>
+            </div>
+          </div>
+
+          <input
+            className="tg-filter-search"
+            placeholder="Filter by keyword..."
+            value={filterKeyword}
+            onChange={e => setFilterKeyword(e.target.value)}
+          />
+
+          <div className="tg-filter-body">
+
+            {/* Funding Source */}
+            <div className="tg-filter-section">
+              <div className="tg-filter-section-header"
+                onClick={() => setSectionOpen(p => ({ ...p, funding: !p.funding }))}>
+                <span>Funding Source {filterFunding.size > 0 && <span className="tg-filter-badge">{filterFunding.size}</span>}</span>
+                {sectionOpen.funding ? <ChevronDown /> : <ChevronRight />}
+              </div>
+              {sectionOpen.funding && FUNDING_SOURCES.map(f => (
+                <label key={f.value} className="tg-filter-item">
+                  <input type="checkbox"
+                    checked={filterFunding.has(f.value)}
+                    onChange={() => setFilterFunding(prev => {
+                      const next = new Set(prev);
+                      next.has(f.value) ? next.delete(f.value) : next.add(f.value);
+                      return next;
+                    })}
+                  />
+                  <span>{f.label}</span>
+                  <span className="tg-filter-count">({fundingCounts[f.value] ?? 0})</span>
+                </label>
+              ))}
+            </div>
+
+            {/* Cost Category */}
+            <div className="tg-filter-section">
+              <div className="tg-filter-section-header"
+                onClick={() => setSectionOpen(p => ({ ...p, category: !p.category }))}>
+                <span>Cost Category {filterCategory.size > 0 && <span className="tg-filter-badge">{filterCategory.size}</span>}</span>
+                {sectionOpen.category ? <ChevronDown /> : <ChevronRight />}
+              </div>
+              {sectionOpen.category && COST_CATEGORIES.map(c => (
+                <label key={c.value} className="tg-filter-item">
+                  <input type="checkbox"
+                    checked={filterCategory.has(c.value)}
+                    onChange={() => setFilterCategory(prev => {
+                      const next = new Set(prev);
+                      next.has(c.value) ? next.delete(c.value) : next.add(c.value);
+                      return next;
+                    })}
+                  />
+                  <span>{c.label}</span>
+                  <span className="tg-filter-count">({categoryCounts[c.value] ?? 0})</span>
+                </label>
+              ))}
+            </div>
+            {/* Service */}
+            <div className="tg-filter-section">
+              <div className="tg-filter-section-header"
+                onClick={() => setSectionOpen(p => ({ ...p, service: !p.service }))}>
+                <span>Service {filterService.size > 0 && <span className="tg-filter-badge">{filterService.size}</span>}</span>
+                {sectionOpen.service ? <ChevronDown /> : <ChevronRight />}
+              </div>
+              {sectionOpen.service && Object.entries(serviceCounts).map(([name, count]) => (
+                <label key={name} className="tg-filter-item">
+                  <input type="checkbox"
+                    checked={filterService.has(name)}
+                    onChange={() => setFilterService(prev => {
+                      const next = new Set(prev);
+                      next.has(name) ? next.delete(name) : next.add(name);
+                      return next;
+                    })}
+                  />
+                  <span>{name}</span>
+                  <span className="tg-filter-count">({count})</span>
+                </label>
+              ))}
+            </div>
+            {/* Assignee */}
+            <div className="tg-filter-section">
+              <div className="tg-filter-section-header"
+                onClick={() => setSectionOpen(p => ({ ...p, assignee: !p.assignee }))}>
+                <span>Assignee {filterAssignee.size > 0 && <span className="tg-filter-badge">{filterAssignee.size}</span>}</span>
+                {sectionOpen.assignee ? <ChevronDown /> : <ChevronRight />}
+              </div>
+              {sectionOpen.assignee && Object.entries(assigneeCounts).map(([name, count]) => (
+                <label key={name} className="tg-filter-item">
+                  <input type="checkbox"
+                    checked={filterAssignee.has(name)}
+                    onChange={() => setFilterAssignee(prev => {
+                      const next = new Set(prev);
+                      next.has(name) ? next.delete(name) : next.add(name);
+                      return next;
+                    })}
+                  />
+                  <span>{name}</span>
+                  <span className="tg-filter-count">({count})</span>
+                </label>
+              ))}
+            </div>
+
+          </div>
+        </div>
+      )}
+
       <div className="tg-scroll" style={{ overflow: "scroll", flex: 1, minHeight: 0 }}>
          <table className="tg-table">
           <thead style={{ position: "sticky", top: 0, zIndex: 3 }}>
@@ -1432,7 +1712,11 @@ function toggleColumn(id: string) {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map(row => {
+            {table.getRowModel().rows.filter(row => {
+              if (totalActiveFilters === 0) return true;
+              if (row.original.isSummary) return true;
+              return isLeafVisible(row.original);
+            }).map(row => {
               const isSummary = row.original.isSummary;
               const isHovered = hoveredRow === row.id;
               const isChanged = !!pending[row.original.recordId];
