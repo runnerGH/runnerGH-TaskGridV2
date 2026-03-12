@@ -953,7 +953,10 @@ function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
           ) : (
             <span style={{ width: 22, display: "inline-block", flexShrink: 0 }} />
           )}
-          <span className="tg-cell-text">{String(getValue() ?? "")}</span>
+          <span className="tg-cell-text" style={{
+            textDecoration: row.original.pctDone >= 100 ? "line-through" : "none",
+            color: row.original.pctDone >= 100 ? "#9ca3af" : "inherit",
+          }}>{String(getValue() ?? "")}</span>
         </div>
       );
     },
