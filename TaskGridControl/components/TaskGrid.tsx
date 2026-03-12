@@ -710,7 +710,14 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const [data, setData]             = React.useState<TaskNode[]>(initialData);
   //const [expanded, setExpanded]     = React.useState<ExpandedState>({ "0": true });
   const [allExpanded, setAllExpanded] = React.useState(false);
-  const [expanded, setExpanded] = React.useState<ExpandedState>({});
+  const expandKey = `tg-expand-${userId}`;
+  const [expanded, setExpanded] = React.useState<ExpandedState>(() => {
+    try {
+      const stored = localStorage.getItem(`tg-expand-${userId}`);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return {};
+  });
   const [pending, setPending]       = React.useState<Record<string, Partial<TaskNode>>>({});
   const [saving, setSaving]         = React.useState(false);
   const [savedMsg, setSavedMsg]     = React.useState(false);
@@ -778,19 +785,27 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
         }
     }, [initialData]);
 
-    // Expand first TWO levels on initial load
-    React.useEffect(() => {
-      if (initialData.length === 0) return;
-      const twoLevels: Record<string, boolean> = {};
-      // Root rows are "0", "1", etc. Their children are "0.0", "0.1", "1.0", etc.
-      initialData.forEach((rootNode, i) => {
-        twoLevels[String(i)] = true;                          // level 1
-        rootNode.subRows?.forEach((_, j) => {
-          twoLevels[`${i}.${j}`] = true;                     // level 2
-        });
+// Expand first TWO levels on initial load only if no stored state
+  React.useEffect(() => {
+    if (initialData.length === 0) return;
+    try {
+      const stored = localStorage.getItem(expandKey);
+      if (stored) return; // user has a saved state, don't override
+    } catch {}
+    const twoLevels: Record<string, boolean> = {};
+    initialData.forEach((rootNode, i) => {
+      twoLevels[String(i)] = true;
+      rootNode.subRows?.forEach((_, j) => {
+        twoLevels[`${i}.${j}`] = true;
       });
-      setExpanded(twoLevels);
-    }, [initialData.length > 0]);
+    });
+    setExpanded(twoLevels);
+  }, [initialData.length > 0]);
+
+  // Persist expand state on every change
+  React.useEffect(() => {
+    try { localStorage.setItem(expandKey, JSON.stringify(expanded)); } catch {}
+  }, [expanded]);
 
   React.useEffect(() => {
     // Load Entities

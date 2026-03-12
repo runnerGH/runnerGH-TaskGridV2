@@ -24,8 +24,8 @@
                     of-type="Lookup.Simple"        usage="bound" required="false" />
       <property-set name="fiscalYear"       display-name-key="Fiscal Year"
                     of-type="Lookup.Simple"        usage="bound" required="false" />
-      <property-set name="quantity"         display-name-key="Effort"
-                    of-type="Decimal"              usage="bound" required="false" />
+    <property-set name="quantity"           display-name-key="Effort" 
+                    of-type="FP"                   usage="bound" required="false" />
       <property-set name="unitRate"         display-name-key="Unit Rate"
                     of-type="Currency"             usage="bound" required="false" />
       <property-set name="unit"             display-name-key="Unit"
