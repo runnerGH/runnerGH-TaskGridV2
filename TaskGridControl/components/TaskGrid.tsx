@@ -368,6 +368,34 @@ const CSS = `
     background: #107c10; color: white; border-radius: 10px;
     padding: 1px 6px; font-size: 10px; font-weight: 700; margin-left: 4px;
   }
+    .tg-checkbox-cell {
+    width: 32px; padding: 0 8px; text-align: center;
+    border-right: 1px solid #f9fafb;
+  }
+  .tg-checkbox-cell input[type="checkbox"] {
+    width: 14px; height: 14px; cursor: pointer; accent-color: #107c10;
+  }
+  .tg-row-selected td { background: #f0fdf4 !important; }
+  .tg-context-menu {
+    position: fixed; background: white; border: 1px solid #e5e7eb;
+    border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    z-index: 99999; min-width: 220px; padding: 4px 0;
+  }
+  .tg-context-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; font-size: 13px; color: #1f2937;
+    cursor: pointer; user-select: none;
+  }
+  .tg-context-item:hover { background: #f3f2f1; }
+  .tg-context-divider { height: 1px; background: #f3f4f6; margin: 4px 0; }
+  .tg-context-label {
+    padding: 4px 16px; font-size: 11px; color: #9ca3af;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .tg-selection-badge {
+    font-size: 12px; color: #107c10; font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
   .tg-avatars { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; }
   .tg-avatar-row { display: flex; align-items: center; gap: 6px; }
   .tg-avatar {
@@ -774,6 +802,11 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     const [filterCategory, setFilterCategory] = React.useState<Set<number>>(new Set());
     const [filterAssignee, setFilterAssignee] = React.useState<Set<string>>(new Set());
     const [filterService, setFilterService] = React.useState<Set<string>>(new Set());
+    const [selectedRows, setSelectedRows] = React.useState<string[]>([]);
+    const [lastSelectedId, setLastSelectedId]   = React.useState<string | null>(null);
+    const [contextMenu, setContextMenu]         = React.useState<{
+      x: number; y: number; rowId: string;
+    } | null>(null);
     const [sectionOpen, setSectionOpen] = React.useState<Record<string, boolean>>({
       funding: true, category: true, service: true, assignee: true,
     });
@@ -898,6 +931,17 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
       setTaskResources(taskMap);
     }).catch(e => console.error("[TaskGrid] Resource load error:", e));
     }, [taskIds.join(","), refreshCount]);
+
+  // Close context menu on outside click
+  React.useEffect(() => {
+    if (!contextMenu) return;
+    function handler(e: MouseEvent) {
+      const menu = document.getElementById("tg-context-menu");
+      if (menu && !menu.contains(e.target as Node)) setContextMenu(null);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [contextMenu]);  
 
   // Close column panel on outside click
   React.useEffect(() => {
@@ -1090,6 +1134,85 @@ function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
     return true;
   }
 
+function getVisibleLeafIds(): string[] {
+    return table.getRowModel().rows
+      .filter(r => !r.original.isSummary)
+      .map(r => r.original.recordId);
+  }
+
+  function getChildLeafIds(node: TaskNode): string[] {
+    const result: string[] = [];
+    function walk(n: TaskNode) {
+      if (!n.subRows || n.subRows.length === 0) { result.push(n.recordId); return; }
+      n.subRows.forEach(walk);
+    }
+    walk(node);
+    return result;
+  }
+
+  function handleRowSelect(row: any, e: React.MouseEvent) {
+    const recordId = row.original.recordId;
+    const isSummary = row.original.isSummary;
+
+    // Summary row — select all children
+    if (isSummary) {
+      const childIds = getChildLeafIds(row.original);
+      setSelectedRows(prev => {
+      const allSelected = childIds.every(id => prev.includes(id));
+      return allSelected
+        ? prev.filter(id => !childIds.includes(id))
+        : [...new Set([...prev, ...childIds])];
+    });
+      return;
+    }
+
+    // Shift+click — select range
+    if (e.shiftKey && lastSelectedId) {
+      const allIds = getVisibleLeafIds();
+      const fromIdx = allIds.indexOf(lastSelectedId);
+      const toIdx   = allIds.indexOf(recordId);
+      if (fromIdx !== -1 && toIdx !== -1) {
+        const [start, end] = fromIdx < toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+        const rangeIds = allIds.slice(start, end + 1);
+        setSelectedRows(prev => [...new Set([...prev, ...rangeIds])]);
+        return;
+      }
+    }
+
+    // Normal click — toggle
+    setSelectedRows(prev =>
+      prev.includes(recordId) ? prev.filter(id => id !== recordId) : [...prev, recordId]
+    );
+    setLastSelectedId(recordId);
+  }
+
+  function applyBulkSRC(srcId: string) {
+    const src = srcItems.find(s => s.id === srcId);
+    if (!src) return;
+    const targets = selectedRows.length > 0 ? selectedRows : contextMenu ? [contextMenu.rowId] : [];
+    targets.forEach(recordId => {
+      const node = table.getRowModel().rows.find(r => r.original.recordId === recordId)?.original;
+      if (!node) return;
+      applyUpdates(recordId, recalc(node, {
+        srcServiceId: src.id, srcServiceName: src.name,
+        unitRate: src.price, unit: src.unit, frequency: src.frequency,
+      }));
+    });
+    setContextMenu(null);
+  }
+
+  function applyBulkFunding(value: number) {
+    const targets = selectedRows.length > 0 ? selectedRows : contextMenu ? [contextMenu.rowId] : [];
+    targets.forEach(recordId => updateField(recordId, "fundingSource", value));
+    setContextMenu(null);
+  }
+
+  function applyBulkCategory(value: number) {
+    const targets = selectedRows.length > 0 ? selectedRows : contextMenu ? [contextMenu.rowId] : [];
+    targets.forEach(recordId => updateField(recordId, "costCategory", value));
+    setContextMenu(null);
+  }
+
 function clearAllFilters() {
     setFilterKeyword("");
     setFilterFunding(new Set());
@@ -1098,7 +1221,85 @@ function clearAllFilters() {
     setFilterService(new Set());
   }
 
+
+  
   const columns = React.useMemo(() => [
+
+col.display({
+    id: "select",
+    header: () => (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+      <input type="checkbox"
+        style={{ width: 12, height: 12, cursor: "pointer", accentColor: "#107c10" }}
+        checked={selectedRows.length > 0 && getVisibleLeafIds().every(id => selectedRows.includes(id))}
+        onChange={e => {
+          const ids = getVisibleLeafIds();
+          setSelectedRows(e.target.checked ? ids : []);
+        }}
+      />
+      </div>
+    ),
+    size: 32,
+    cell: function SelectCell({ row }) {
+      if (row.original.isSummary) {
+        const childIds = getChildLeafIds(row.original);
+        const allSelected = childIds.length > 0 && childIds.every(id => selectedRows.includes(id));
+        const someSelected = childIds.some(id => selectedRows.includes(id));
+return (
+          <div
+            onClick={() => {
+              const allSel = childIds.every(id => selectedRows.includes(id));
+              setSelectedRows(allSel
+                ? selectedRows.filter(id => !childIds.includes(id))
+                : [...new Set([...selectedRows, ...childIds])]);
+            }}
+            style={{
+              width: 8, height: 8,
+              border: allSelected ? "2px solid #107c10" : someSelected ? "2px solid #107c10" : "2px solid #d1d5db",
+              borderRadius: 2,
+              background: allSelected ? "#107c10" : someSelected ? "white" : "white",
+              cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0, margin: "0 auto",
+            }}>
+            {allSelected && (
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            )}
+            {someSelected && !allSelected && (
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                stroke="#107c10" strokeWidth="4" strokeLinecap="round">
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            )}
+          </div>
+        );
+      }
+      const isSelected = selectedRows.includes(row.original.recordId);
+      return (
+        <div
+          onClick={e => { e.stopPropagation(); handleRowSelect(row, e as any); }}
+          style={{
+            width: 8, height: 8,
+            border: isSelected ? "2px solid #107c10" : "2px solid #d1d5db",
+            borderRadius: 2,
+            background: isSelected ? "#107c10" : "white",
+            cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, margin: "0 auto",
+          }}>
+          {isSelected && (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+              stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          )}
+        </div>
+      );
+    },
+  }),
 
   // ── Schedule ──────────────────────────────────────────────────────────────
   col.accessor("taskName", {
@@ -1348,7 +1549,7 @@ col.accessor("actualCost", {
     );
   },
 }),
-], [resolvedSrcItems, taskResources]);
+], [resolvedSrcItems, taskResources, selectedRows]);
 
 const columnVisibility = React.useMemo(() => {
     const vis: Record<string, boolean> = {};
@@ -1426,8 +1627,8 @@ function toggleColumn(id: string) {
     try { localStorage.setItem(storageKey, JSON.stringify([...all])); } catch {}
   }
 
-    function reorderColumn(dragId: string, dropId: string) {
-        if (dragId === dropId || dragId === "taskName") return;
+  function reorderColumn(dragId: string, dropId: string) {
+    if (dragId === dropId || dragId === "taskName" || dragId === "select") return;
         const currentOrder = columnOrder.length > 0
         ? columnOrder
         : table.getAllLeafColumns().map(c => c.id);
@@ -1440,6 +1641,8 @@ function toggleColumn(id: string) {
         // Ensure taskName always first
         const tnIdx = next.indexOf("taskName");
         if (tnIdx > 0) { next.splice(tnIdx, 1); next.unshift("taskName"); }
+        const selIdx = next.indexOf("select");
+        if (selIdx > 0) { next.splice(selIdx, 1); next.unshift("select"); }
         setColumnOrder(next);
         try { localStorage.setItem(orderKey, JSON.stringify(next)); } catch {}
     }
@@ -1494,6 +1697,18 @@ function toggleColumn(id: string) {
   </button>
 
   <div style={{ flex: 1 }} />
+  {selectedRows.length > 0 && (
+    <div className="tg-selection-badge">
+      <span className="tg-filter-badge" style={{ background: "#107c10" }}>
+        {selectedRows.length}
+      </span>
+      {selectedRows.length === 1 ? "row selected" : "rows selected"}
+      <button className="tg-btn" style={{ color: "#6b7280", fontSize: 12 }}
+        onClick={() => setSelectedRows([])}>
+        ✕ Clear
+      </button>
+    </div>
+  )}
   {changesCount > 0 && !savedMsg && (
     <React.Fragment>
       <span style={{ fontSize: 12, color: "#605e5c" }}>
@@ -1553,6 +1768,52 @@ function toggleColumn(id: string) {
 </div>
 
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
+
+      {contextMenu && typeof document !== "undefined" && ReactDOM.createPortal(
+        <div id="tg-context-menu" className="tg-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}>
+
+          {selectedRows.length > 1 && (
+            <div className="tg-context-label">{selectedRows.length} rows selected</div>
+          )}
+
+          <div className="tg-context-label">Apply SRC Service</div>
+          {resolvedSrcItems.slice(0, 10).map(s => (
+            <div key={s.id} className="tg-context-item"
+              onClick={() => applyBulkSRC(s.id)}>
+              <span style={{ fontWeight: 500 }}>{s.serviceId}</span>
+              <span style={{ color: "#6b7280", fontSize: 12 }}>
+                {[s.fiscalYearName, s.entityName].filter(Boolean).join(" · ")}
+              </span>
+            </div>
+          ))}
+
+          <div className="tg-context-divider" />
+          <div className="tg-context-label">Apply Funding Source</div>
+          {FUNDING_SOURCES.map(f => (
+            <div key={f.value} className="tg-context-item"
+              onClick={() => applyBulkFunding(f.value)}>
+              {f.label}
+            </div>
+          ))}
+
+          <div className="tg-context-divider" />
+          <div className="tg-context-label">Apply Cost Category</div>
+          {COST_CATEGORIES.map(c => (
+            <div key={c.value} className="tg-context-item"
+              onClick={() => applyBulkCategory(c.value)}>
+              {c.label}
+            </div>
+          ))}
+
+          <div className="tg-context-divider" />
+          <div className="tg-context-item" style={{ color: "#6b7280" }}
+            onClick={() => setContextMenu(null)}>
+            Cancel
+          </div>
+        </div>,
+        document.body
+      )}
 
       {filterOpen && (
         <div className="tg-filter-panel">
@@ -1748,8 +2009,13 @@ function toggleColumn(id: string) {
 
               return (
                 <tr key={row.id}
+                  className={selectedRows.includes(row.original.recordId) ? "tg-row-selected" : ""}
                   onMouseEnter={() => setHoveredRow(row.id)}
-                  onMouseLeave={() => setHoveredRow(null)}>
+                  onMouseLeave={() => setHoveredRow(null)}
+                  onContextMenu={e => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, rowId: row.original.recordId });
+                  }}>
                   {row.getVisibleCells().map((cell, i) => (
                   <td key={cell.id} style={{
                       ...tdBase,
