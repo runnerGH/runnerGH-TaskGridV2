@@ -105,6 +105,15 @@ public init(
   this.container = container;
   this.notifyOutputChanged = notifyOutputChanged;
   context.parameters.TaskDataSet.paging.setPageSize(5000);
+  container.style.height = "100%";
+  container.style.overflow = "hidden";
+  container.style.display = "flex";
+  container.style.flexDirection = "column";
+  container.style.position = "absolute";
+  container.style.top = "0";
+  container.style.left = "15px";
+  container.style.right = "15px";
+  container.style.bottom = "0";   
 }
 
   public updateView(context: ComponentFramework.Context<IInputs>): void {

@@ -55,7 +55,6 @@ const ALL_COLUMNS = [
   { id: "totalActualCost",  label: "Total actual cost",  group: "cost" },
   { id: "remainingCost",    label: "Remaining",          group: "cost" },
   { id: "earnedValue",      label: "Earned value",       group: "cost" },
-  { id: "fundingSource",    label: "Funding source",     group: "cost" },
 ] as const;
 
 const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.map(c => c.id));
@@ -121,15 +120,31 @@ function RefreshIcon() {
 }
 
 const CSS = `
-  .tg-wrap {
+.tg-wrap {
     font-family: 'Segoe UI', system-ui, sans-serif;
     font-size: 13px; display: flex; flex-direction: column;
     height: 100%; background: #fff; color: #1f2937;
+    overflow: hidden; margin: 0 15px 0 0;
+    border: 1px solid #e5e7eb; border-radius: 4px;
   }
+.tg-wrap input, .tg-wrap select {
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+    font-size: 13px !important;
+  }
+  .tg-input {
+    font-size: 14px !important;
+  }
+  .tg-select { cursor: cell !important; }
+  .tg-select:focus { cursor: default !important; }
+  .tg-input  { cursor: cell !important; }
+  .tg-input:focus { cursor: text !important; }
+  .tg-input-wrap { cursor: cell !important; }
+  .tg-input-wrap:focus-within { cursor: text !important; }
   .tg-toolbar {
     background: #fff; border-bottom: 1px solid #e5e7eb;
     padding: 0 8px; display: flex; align-items: center;
     gap: 2px; flex-shrink: 0; height: 44px;
+    position: sticky; top: 0; z-index: 10;
   }
   .tg-title {
     font-weight: 600; font-size: 13px; color: #1f2937;
@@ -162,8 +177,11 @@ const CSS = `
     font-size: 12px; text-transform: none !important;
     padding: 10px 12px; border-bottom: 1px solid #e5e7eb;
     border-right: 1px solid #f3f4f6; text-align: left;
-    position: sticky; top: 0; z-index: 2; white-space: nowrap; user-select: none;
+    position: sticky; top: 0; z-index: 3; white-space: nowrap; user-select: none;
     overflow: hidden;
+  }
+  .tg-table th[data-pinned="true"] {
+    z-index: 5;
   }
   .tg-resize-handle {
     position: absolute;
@@ -190,30 +208,43 @@ const CSS = `
   }
   .tg-progress-fill  { height: 100%; border-radius: 2px; transition: width 0.3s; }
   .tg-progress-label { font-size: 12px; color: #605e5c; width: 38px; text-align: right; flex-shrink: 0; }
-  .tg-select {
-    font-size: 13px; border: 1px solid #d1d5db; border-radius: 2px;
-    padding: 2px 4px; background: white; width: 100%;
+.tg-select {
+    font-size: 13px; border: 1px solid transparent;
+    padding: 4px 4px; background: transparent; width: 100%;
     color: #1f2937; cursor: pointer; max-width: 220px;
+    height: 100%; appearance: auto; border-radius: 0;
   }
-  .tg-select:focus { outline: none; border-color: #0078d4; }
-  .tg-input-wrap {
+  .tg-select:hover { border: 1px solid #107c10; background: white; }
+  .tg-select:focus { outline: none; border: 2px solid #107c10; background: white; }
+.tg-input-wrap {
     display: flex; align-items: center; justify-content: flex-end;
-    border: 1px solid #d1d5db; border-radius: 2px; background: white;
-    overflow: hidden; width: 110px; margin-left: auto;
+    border: 1px solid transparent; background: transparent;
+    width: 100%; margin-left: auto; height: 100%;
+    box-sizing: border-box;
   }
+.tg-input-wrap:hover { background: white; border: 1px solid #107c10; cursor: text; }
+  .tg-input-wrap:focus-within {
+    border: 2px solid #107c10; background: white;
+  }
+  .tg-input { cursor: text; }
   .tg-input-symbol {
-    padding: 2px 5px; background: #f3f4f6; color: #605e5c;
-    font-size: 13px; border-right: 1px solid #e5e7eb; flex-shrink: 0;
+    padding: 2px 5px; background: transparent; color: #605e5c;
+    font-size: 13px !important; flex-shrink: 0;
   }
   .tg-input {
-    font-size: 13px; border: none; padding: 2px 6px;
-    background: white; width: 100%; text-align: right; color: #1f2937;
-    outline: none;
+    font-size: 13px !important; border: none; padding: 2px 6px;
+    background: transparent; width: 100%; text-align: right; color: #1f2937;
+    outline: none; height: 100%; box-sizing: border-box;
+    -webkit-appearance: none; -moz-appearance: textfield;
+    font-family: 'Segoe UI', system-ui, sans-serif;
   }
+  .tg-input::-webkit-outer-spin-button,
+  .tg-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .tg-footer {
     padding: 4px 12px; background: #fff; border-top: 1px solid #e5e7eb;
     font-size: 11px; color: #a19f9d; display: flex;
     justify-content: space-between; flex-shrink: 0;
+    position: sticky; bottom: 0; z-index: 10;
   }
     .tg-col-panel {
     position: absolute;
@@ -265,6 +296,18 @@ const CSS = `
   .tg-col-footer button:hover { background: #f3f2f1; }
   .tg-table.is-resizing { cursor: col-resize; user-select: none; }
   .tg-table.is-resizing td { pointer-events: none; }
+  .tg-table th[data-pinned="true"],
+  .tg-table td[data-pinned="true"] {
+    border-right: 2px solid #d1d5db !important;
+  }
+  .tg-table td:not([data-pinned="true"]) {
+    position: relative;
+    z-index: 0;
+  }
+  .tg-table th:not([data-pinned="true"]) {
+    position: relative;
+    z-index: 2;
+  }
   .tg-th-dragging   { opacity: 0.4; cursor: grabbing; }
   .tg-th-drop-left  { border-left: 2px solid #0078d4 !important; }
   .tg-th-drop-right { border-right: 2px solid #0078d4 !important; }
@@ -379,7 +422,7 @@ function CurrencyInput({ value, onChange, disabled }: {
     onChange(isNaN(n) ? 0 : n);
   }
 
-  return (
+return (
     <div className="tg-input-wrap">
       <span className="tg-input-symbol">$</span>
       <input
@@ -439,6 +482,7 @@ function ServiceCombobox({ value, items, onChange }: {
 }) {
   const [open, setOpen]       = React.useState(false);
   const [query, setQuery]     = React.useState("");
+  const [hovered, setHovered] = React.useState(false);
   const triggerRef            = React.useRef<HTMLDivElement>(null);
   const [dropPos, setDropPos] = React.useState({ top: 0, left: 0, width: 0 });
 
@@ -577,11 +621,15 @@ function ServiceCombobox({ value, items, onChange }: {
       <div
         ref={triggerRef}
         onClick={openDropdown}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          border: "1px solid #d1d5db", borderRadius: 2, padding: "2px 6px",
-          background: "white", cursor: "pointer", fontSize: 13,
-          color: selected ? "#1f2937" : "#9ca3af", minHeight: 26,
+          border: open ? "2px solid #107c10" : hovered ? "1px solid #107c10" : "1px solid transparent",
+          borderRadius: 0, padding: "2px 6px",
+          background: open || hovered ? "white" : "transparent", cursor: "pointer", fontSize: 13,
+          color: selected ? "#1f2937" : "#9ca3af",
+          minHeight: 0, height: "100%",
           userSelect: "none", width: "100%", maxWidth: 260,
           boxSizing: "border-box",
         }}
@@ -591,8 +639,8 @@ function ServiceCombobox({ value, items, onChange }: {
             ? `${selected.serviceId} – ${selected.name}${selected.fiscalYearName ? ` (${selected.fiscalYearName})` : ""}`
             : "— select service —"}
         </span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-          stroke="#6b7280" strokeWidth="2.5" style={{ flexShrink: 0, marginLeft: 4 }}>
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+          stroke="#323130" strokeWidth="2.5" style={{ flexShrink: 0, marginLeft: 4 }}>
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </div>
@@ -616,7 +664,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const [entityItems, setEntityItems] = React.useState<EntityItem[]>([]);
   const [taskResources, setTaskResources] = React.useState<TaskResourceMap>({});
   const [loadError, setLoadError]   = React.useState<string | null>(null);
-
+  
 // Column visibility
   const storageKey = `tg-columns-${userId}`;
   const [visibleCols, setVisibleCols] = React.useState<Set<string>>(() => {
@@ -665,13 +713,18 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
         }
     }, [initialData]);
 
-    // Expand first level on initial load
+    // Expand first TWO levels on initial load
     React.useEffect(() => {
-    if (initialData.length === 0) return;
-    const firstLevel: Record<string, boolean> = {};
-    // Root rows in react-table are indexed 0, 1, 2...
-    initialData.forEach((_, i) => { firstLevel[String(i)] = true; });
-    setExpanded(firstLevel);
+      if (initialData.length === 0) return;
+      const twoLevels: Record<string, boolean> = {};
+      // Root rows are "0", "1", etc. Their children are "0.0", "0.1", "1.0", etc.
+      initialData.forEach((rootNode, i) => {
+        twoLevels[String(i)] = true;                          // level 1
+        rootNode.subRows?.forEach((_, j) => {
+          twoLevels[`${i}.${j}`] = true;                     // level 2
+        });
+      });
+      setExpanded(twoLevels);
     }, [initialData.length > 0]);
 
   React.useEffect(() => {
@@ -1136,7 +1189,7 @@ const columnVisibility = React.useMemo(() => {
 
 const table = useReactTable({
     data, columns,
-    state:                { expanded, columnVisibility, columnOrder },
+    state: { expanded, columnVisibility, columnOrder },
     onExpandedChange:     setExpanded,
     onColumnOrderChange:  setColumnOrder,
     getSubRows:           row => row.subRows,
@@ -1320,9 +1373,9 @@ function toggleColumn(id: string) {
 
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
 
-      <div className="tg-scroll">
+      <div className="tg-scroll" style={{ overflow: "scroll", flex: 1, minHeight: 0 }}>
          <table className="tg-table">
-          <thead>
+          <thead style={{ position: "sticky", top: 0, zIndex: 3 }}>
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
 {hg.headers.map(h => {
@@ -1337,7 +1390,10 @@ function toggleColumn(id: string) {
                         isDragging  ? "tg-th-dragging" : "",
                         isDropTarget && !isLocked ? "tg-th-drop-left" : "",
                       ].filter(Boolean).join(" ")}
-                      style={{ width: h.getSize(), minWidth: h.getSize() }}
+                      style={{
+                          width: h.getSize(),
+                          minWidth: h.getSize(),
+                      }}
                       draggable={!isLocked}
                       onDragStart={e => {
                         if (isLocked) return;
@@ -1393,7 +1449,7 @@ function toggleColumn(id: string) {
                   onMouseEnter={() => setHoveredRow(row.id)}
                   onMouseLeave={() => setHoveredRow(null)}>
                   {row.getVisibleCells().map((cell, i) => (
-                    <td key={cell.id} style={{
+                  <td key={cell.id} style={{
                       ...tdBase,
                       borderRight: i === row.getVisibleCells().length - 1
                         ? "none" : "1px solid #f9fafb",
