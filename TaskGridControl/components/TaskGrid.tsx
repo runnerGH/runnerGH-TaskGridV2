@@ -1613,9 +1613,13 @@ const columnVisibility = React.useMemo(() => {
 
 const table = useReactTable({
     data, columns,
-    state: { expanded, columnVisibility, columnOrder },
+    state: { expanded, columnVisibility, columnOrder, columnSizing },
     onExpandedChange:     setExpanded,
     onColumnOrderChange:  setColumnOrder,
+    onColumnSizingChange: sizing => {
+      setColumnSizing(sizing as Record<string, number>);
+    },
+    columnResizeMode:     "onChange",
     getSubRows:           row => row.subRows,
     getCoreRowModel:      getCoreRowModel(),
     getExpandedRowModel:  getExpandedRowModel(),
@@ -1837,6 +1841,10 @@ function toggleColumn(id: string) {
                     setColumnOrder([]);
                     try { localStorage.removeItem(orderKey); } catch {}
                 }}>Reset order</button>
+                <button onClick={() => {
+                    setColumnSizing({});
+                    try { localStorage.removeItem(sizingKey); } catch {}
+                }}>Reset widths</button>
                 <button onClick={() => setColPanelOpen(false)}>Close</button>
             </div>
         </div>,
@@ -1986,7 +1994,7 @@ function toggleColumn(id: string) {
                       }}
                       draggable={!isLocked}
                       onDragStart={e => {
-                        if (isLocked) return;
+                        if (isLocked || h.column.getIsResizing()) return;
                         setDragColId(h.column.id);
                         e.dataTransfer.effectAllowed = "move";
                       }}
@@ -2012,6 +2020,37 @@ function toggleColumn(id: string) {
                       }}
                     >
                       {flexRender(h.column.columnDef.header, h.getContext())}
+                      {h.column.getCanResize() && (
+                        <div
+                          className={`tg-resize-handle${h.column.getIsResizing() ? " is-resizing" : ""}`}
+                          onMouseDown={e => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            const startX = e.clientX;
+                            const startSize = h.column.getSize();
+                            function onMove(ev: MouseEvent) {
+                              const delta = ev.clientX - startX;
+                              const newSize = Math.max(40, startSize + delta);
+                              h.column.parent?.columnDef ?? null;
+                              table.setColumnSizing(prev => ({
+                                ...prev,
+                                [h.column.id]: newSize,
+                              }));
+                            }
+                            function onUp() {
+                              document.removeEventListener("mousemove", onMove);
+                              document.removeEventListener("mouseup", onUp);
+                              try {
+                                localStorage.setItem(sizingKey, JSON.stringify(
+                                  table.getState().columnSizing
+                                ));
+                              } catch {}
+                            }
+                            document.addEventListener("mousemove", onMove);
+                            document.addEventListener("mouseup", onUp);
+                          }}
+                        />
+                      )}
                     </th>
                   );
                 })}
