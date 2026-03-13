@@ -108,6 +108,96 @@ function formatDate(raw: string): string {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function BulkDropdown({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button className="tg-btn" style={{ color: "#107c10", fontWeight: 500 }}
+        onClick={() => setOpen(o => !o)}>
+        {label}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, marginTop: 2,
+          background: "white", border: "1px solid #e5e7eb", borderRadius: 4,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.12)", zIndex: 99999,
+          minWidth: 220, padding: "4px 0",
+        }}
+          onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulkMenuItem({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <div onClick={onClick} style={{
+      padding: "7px 14px", fontSize: 13, cursor: "pointer",
+      color: "#1f2937", userSelect: "none",
+    }}
+      onMouseEnter={e => (e.currentTarget.style.background = "#f3f2f1")}
+      onMouseLeave={e => (e.currentTarget.style.background = "white")}>
+      {children}
+    </div>
+  );
+}
+
+function BulkServiceSearch({ items, onSelect }: {
+  items: SrcItem[]; onSelect: (id: string) => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const filtered = query.trim() === "" ? items
+    : items.filter(s =>
+        s.serviceId.toLowerCase().includes(query.toLowerCase()) ||
+        s.name.toLowerCase().includes(query.toLowerCase()) ||
+        (s.entityName ?? "").toLowerCase().includes(query.toLowerCase())
+      );
+  return (
+    <React.Fragment>
+      <input autoFocus placeholder="Search service..."
+        value={query} onChange={e => setQuery(e.target.value)}
+        style={{
+          width: "100%", border: "1px solid #d1d5db", borderRadius: 2,
+          padding: "4px 8px", fontSize: 13, outline: "none",
+          boxSizing: "border-box", marginBottom: 4,
+        }}
+        onClick={e => e.stopPropagation()}
+      />
+      <div style={{ maxHeight: 220, overflowY: "auto" }}>
+        {filtered.map(s => (
+          <div key={s.id} onClick={() => onSelect(s.id)}
+            style={{ padding: "6px 8px", fontSize: 13, cursor: "pointer", borderRadius: 2 }}
+            onMouseEnter={e => (e.currentTarget.style.background = "#f3f2f1")}
+            onMouseLeave={e => (e.currentTarget.style.background = "white")}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 500, fontSize: 12 }}>{s.serviceId}</span>
+              <span style={{ fontSize: 11, color: "#0078d4" }}>{s.entityName}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280" }}>{s.name}</div>
+          </div>
+        ))}
+      </div>
+    </React.Fragment>
+  );
+}
+
 function RefreshIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -376,22 +466,6 @@ const CSS = `
     width: 14px; height: 14px; cursor: pointer; accent-color: #107c10;
   }
   .tg-row-selected td { background: #f0fdf4 !important; }
-  .tg-context-menu {
-    position: fixed; background: white; border: 1px solid #e5e7eb;
-    border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-    z-index: 99999; min-width: 220px; padding: 4px 0;
-  }
-  .tg-context-item {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 16px; font-size: 13px; color: #1f2937;
-    cursor: pointer; user-select: none;
-  }
-  .tg-context-item:hover { background: #f3f2f1; }
-  .tg-context-divider { height: 1px; background: #f3f4f6; margin: 4px 0; }
-  .tg-context-label {
-    padding: 4px 16px; font-size: 11px; color: #9ca3af;
-    font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
-  }
   .tg-selection-badge {
     font-size: 12px; color: #107c10; font-weight: 500;
     display: flex; align-items: center; gap: 6px;
@@ -804,9 +878,6 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     const [filterService, setFilterService] = React.useState<Set<string>>(new Set());
     const [selectedRows, setSelectedRows] = React.useState<string[]>([]);
     const [lastSelectedId, setLastSelectedId]   = React.useState<string | null>(null);
-    const [contextMenu, setContextMenu]         = React.useState<{
-      x: number; y: number; rowId: string;
-    } | null>(null);
     const [sectionOpen, setSectionOpen] = React.useState<Record<string, boolean>>({
       funding: true, category: true, service: true, assignee: true,
     });
@@ -931,17 +1002,6 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
       setTaskResources(taskMap);
     }).catch(e => console.error("[TaskGrid] Resource load error:", e));
     }, [taskIds.join(","), refreshCount]);
-
-  // Close context menu on outside click
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    function handler(e: MouseEvent) {
-      const menu = document.getElementById("tg-context-menu");
-      if (menu && !menu.contains(e.target as Node)) setContextMenu(null);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [contextMenu]);  
 
   // Close column panel on outside click
   React.useEffect(() => {
@@ -1186,11 +1246,10 @@ function getVisibleLeafIds(): string[] {
     setLastSelectedId(recordId);
   }
 
-  function applyBulkSRC(srcId: string) {
+function applyBulkSRC(srcId: string) {
     const src = srcItems.find(s => s.id === srcId);
     if (!src) return;
-    const targets = selectedRows.length > 0 ? selectedRows : contextMenu ? [contextMenu.rowId] : [];
-    targets.forEach(recordId => {
+    selectedRows.forEach(recordId => {
       const node = table.getRowModel().rows.find(r => r.original.recordId === recordId)?.original;
       if (!node) return;
       applyUpdates(recordId, recalc(node, {
@@ -1198,19 +1257,14 @@ function getVisibleLeafIds(): string[] {
         unitRate: src.price, unit: src.unit, frequency: src.frequency,
       }));
     });
-    setContextMenu(null);
   }
 
-  function applyBulkFunding(value: number) {
-    const targets = selectedRows.length > 0 ? selectedRows : contextMenu ? [contextMenu.rowId] : [];
-    targets.forEach(recordId => updateField(recordId, "fundingSource", value));
-    setContextMenu(null);
+function applyBulkFunding(value: number) {
+    selectedRows.forEach(recordId => updateField(recordId, "fundingSource", value));
   }
 
   function applyBulkCategory(value: number) {
-    const targets = selectedRows.length > 0 ? selectedRows : contextMenu ? [contextMenu.rowId] : [];
-    targets.forEach(recordId => updateField(recordId, "costCategory", value));
-    setContextMenu(null);
+    selectedRows.forEach(recordId => updateField(recordId, "costCategory", value));
   }
 
 function clearAllFilters() {
@@ -1696,18 +1750,41 @@ function toggleColumn(id: string) {
     )}
   </button>
 
-  <div style={{ flex: 1 }} />
+<div style={{ flex: 1 }} />
   {selectedRows.length > 0 && (
-    <div className="tg-selection-badge">
-      <span className="tg-filter-badge" style={{ background: "#107c10" }}>
-        {selectedRows.length}
+    <React.Fragment>
+      <div className="tg-divider" />
+      <span style={{ fontSize: 12, color: "#107c10", fontWeight: 600, whiteSpace: "nowrap" }}>
+        ✓ {selectedRows.length} {selectedRows.length === 1 ? "row" : "rows"} selected
       </span>
-      {selectedRows.length === 1 ? "row selected" : "rows selected"}
+
+      <BulkDropdown label="Funding">
+        {FUNDING_SOURCES.map(f => (
+          <BulkMenuItem key={f.value} onClick={() => applyBulkFunding(f.value)}>
+            {f.label}
+          </BulkMenuItem>
+        ))}
+      </BulkDropdown>
+
+      <BulkDropdown label="Category">
+        {COST_CATEGORIES.map(c => (
+          <BulkMenuItem key={c.value} onClick={() => applyBulkCategory(c.value)}>
+            {c.label}
+          </BulkMenuItem>
+        ))}
+      </BulkDropdown>
+
+      <BulkDropdown label="Service">
+        <div style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+          <BulkServiceSearch items={resolvedSrcItems} onSelect={applyBulkSRC} />
+        </div>
+      </BulkDropdown>
+
       <button className="tg-btn" style={{ color: "#6b7280", fontSize: 12 }}
         onClick={() => setSelectedRows([])}>
         ✕ Clear
       </button>
-    </div>
+    </React.Fragment>
   )}
   {changesCount > 0 && !savedMsg && (
     <React.Fragment>
@@ -1768,52 +1845,6 @@ function toggleColumn(id: string) {
 </div>
 
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
-
-      {contextMenu && typeof document !== "undefined" && ReactDOM.createPortal(
-        <div id="tg-context-menu" className="tg-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}>
-
-          {selectedRows.length > 1 && (
-            <div className="tg-context-label">{selectedRows.length} rows selected</div>
-          )}
-
-          <div className="tg-context-label">Apply SRC Service</div>
-          {resolvedSrcItems.slice(0, 10).map(s => (
-            <div key={s.id} className="tg-context-item"
-              onClick={() => applyBulkSRC(s.id)}>
-              <span style={{ fontWeight: 500 }}>{s.serviceId}</span>
-              <span style={{ color: "#6b7280", fontSize: 12 }}>
-                {[s.fiscalYearName, s.entityName].filter(Boolean).join(" · ")}
-              </span>
-            </div>
-          ))}
-
-          <div className="tg-context-divider" />
-          <div className="tg-context-label">Apply Funding Source</div>
-          {FUNDING_SOURCES.map(f => (
-            <div key={f.value} className="tg-context-item"
-              onClick={() => applyBulkFunding(f.value)}>
-              {f.label}
-            </div>
-          ))}
-
-          <div className="tg-context-divider" />
-          <div className="tg-context-label">Apply Cost Category</div>
-          {COST_CATEGORIES.map(c => (
-            <div key={c.value} className="tg-context-item"
-              onClick={() => applyBulkCategory(c.value)}>
-              {c.label}
-            </div>
-          ))}
-
-          <div className="tg-context-divider" />
-          <div className="tg-context-item" style={{ color: "#6b7280" }}
-            onClick={() => setContextMenu(null)}>
-            Cancel
-          </div>
-        </div>,
-        document.body
-      )}
 
       {filterOpen && (
         <div className="tg-filter-panel">
@@ -2012,10 +2043,7 @@ function toggleColumn(id: string) {
                   className={selectedRows.includes(row.original.recordId) ? "tg-row-selected" : ""}
                   onMouseEnter={() => setHoveredRow(row.id)}
                   onMouseLeave={() => setHoveredRow(null)}
-                  onContextMenu={e => {
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, rowId: row.original.recordId });
-                  }}>
+                  >
                   {row.getVisibleCells().map((cell, i) => (
                   <td key={cell.id} style={{
                       ...tdBase,
