@@ -263,6 +263,74 @@ function DonutChart({ slices, size = 120 }: {
 
 const DONUT_COLORS = ["#4f46e5","#0f766e","#d97706","#dc2626","#7c3aed","#0284c7","#16a34a","#9ca3af"];
 
+
+function InfoPopover({ title, explanation, formula, thresholds }: {
+  title: string;
+  explanation: string;
+  formula: string;
+  thresholds: string;
+}) {
+  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+
+  React.useEffect(() => {
+    if (!pos) return;
+    function handler(e: MouseEvent) {
+      const portal = document.getElementById("tg-info-portal");
+      if (portal && !portal.contains(e.target as Node) &&
+          btnRef.current && !btnRef.current.contains(e.target as Node)) {
+        setPos(null);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [pos]);
+
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (pos) { setPos(null); return; }
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const popWidth = 260;
+      const left = Math.min(rect.left, window.innerWidth - popWidth - 12);
+      setPos({ top: rect.bottom + 6, left });
+    }
+  }
+
+  const portal = pos ? ReactDOM.createPortal(
+    <div id="tg-info-portal" style={{
+      position: "fixed", top: pos.top, left: pos.left,
+      background: "white", border: "1px solid #e5e7eb",
+      borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+      zIndex: 99999, width: 260, padding: "14px 16px",
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6, marginBottom: 10 }}>{explanation}</div>
+      <div style={{ background: "#f3f4f6", borderRadius: 6, padding: "8px 10px", marginBottom: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Formula</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#4f46e5", fontFamily: "monospace" }}>{formula}</div>
+      </div>
+      <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.6, borderTop: "1px solid #f3f4f6", paddingTop: 8 }}>{thresholds}</div>
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <React.Fragment>
+      <button
+        ref={btnRef}
+        onClick={handleClick}
+        style={{
+          background: "none", border: "none", cursor: "pointer",
+          color: "#9ca3af", fontSize: 14, lineHeight: 1,
+          padding: "0 0 0 5px", display: "inline-flex", alignItems: "center",
+        }}
+      >ⓘ</button>
+      {portal}
+    </React.Fragment>
+  );
+}
+
 function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[]; onClose: () => void; latestApprovedBudget: number }) {
 
   function flatLeaves(nodes: TaskNode[]): TaskNode[] {
@@ -348,7 +416,7 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
     { value: 847020005, label: "Indirect Costs" },
   ];
 
-  type PidRow = { category: string; qty: number; unitCost: number; totalCost: number; funding: string };
+  type PidRow = { category: string; qty: number; unitCost: number; totalCost: number; funding: string; remarks: string };
   const pidRows: PidRow[] = [];
   COST_CATS_FULL.forEach(cat => {
     const catLeaves = leaves.filter(n => n.costCategory === cat.value);
@@ -363,7 +431,8 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
       const qty      = tasks.reduce((s, n) => s + (n.quantity ?? 0), 0);
       const total    = tasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
       const unitCost = qty > 0 ? total / qty : 0;
-      pidRows.push({ category: cat.label, qty, unitCost, totalCost: total, funding });
+      const remarks  = tasks.map(n => n.taskName).filter(Boolean).join(", ");
+      pidRows.push({ category: cat.label, qty, unitCost, totalCost: total, funding, remarks });
     });
   });
   const pidTotal = pidRows.reduce((s, r) => s + r.totalCost, 0);
@@ -502,9 +571,9 @@ function HBarChart({ title, bars, total }: {
 
   const [pidCopied, setPidCopied] = React.useState(false);
   function copyPidTable() {
-    const header = "Category\tQty\tUnit Cost\tTotal Cost\tFunding Source";
+    const header = "Category\tQty\tUnit Cost\tTotal Cost\tFunding Source\tRemarks";
     const rows = pidRows.map(r =>
-      `${r.category}\t${r.qty.toFixed(2)}\t${fmtCurrency(r.unitCost)}\t${fmtCurrency(r.totalCost)}\t${r.funding}`
+      `${r.category}\t${r.qty.toFixed(2)}\t${fmtCurrency(r.unitCost)}\t${fmtCurrency(r.totalCost)}\t${r.funding}\t${r.remarks}`
     );
     const total = `Total\t\t\t${fmtCurrency(pidTotal)}\t`;
     navigator.clipboard.writeText([header, ...rows, total].join("\n")).then(() => {
@@ -554,102 +623,203 @@ function HBarChart({ title, bars, total }: {
         <button className="tg-summary-close" onClick={onClose}>✕</button>
       </div>
 
-      {/* ── Row 1: KPIs + Gauge + Value Cards ───────────────────── */}
-<div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "stretch" }}>
+      {/* ── Row 1: KPI cards — full width, side by side ─────────── */}
+      <div style={{ display: "flex", gap: 14, padding: "16px 18px 0" }}>
 
-        {/* KPI cards */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: "0 0 250px" }}>
+        {/* KPI 1 — Budget Remaining Status */}
+        <div style={{ background: kpi2Status.bg, border: `2px solid ${kpi2Status.color}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+          <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em", display: "flex", alignItems: "center" }}>
+            Budget Remaining Status
+            <InfoPopover
+              title="Budget Remaining Status"
+              explanation="How much budget is still available to spend."
+              formula="Available = Total Planned − Total Spent"
+              thresholds="🟢 > 15% = Sufficient · 🟡 5–15% = Low · 🔴 < 5% = Overrun"
+            />
+          </div>
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi2Status.color, flexShrink: 0 }}/>
+            <span style={{ fontSize: 20, fontWeight: 800, color: kpi2Status.color }}>{kpi2Status.label}</span>
+          </div>
+          <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
+            {availablePct.toFixed(1)}% remaining
+          </div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
+            {">"}15% sufficient · 5–15% low · {"<"}5% overrun
+          </div>
+        </div>
 
-          {/* KPI 3 — Needs PCR */}
-          <div style={{ background: pcrStatus.bg, border: `2px solid ${pcrStatus.color}`, borderRadius: 10, padding: "14px 20px" }}>
-              <div style={{ fontSize: 15, color: "#111827", fontWeight: 800 }}>Needs PCR?</div>
-              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 18, height: 18, borderRadius: "50%", background: pcrStatus.color, flexShrink: 0 }}/>
-                <span style={{ fontSize: 18, fontWeight: 800, color: pcrStatus.color }}>{pcrStatus.label}</span>
+        {/* KPI 2 — Consumption Rate */}
+        <div style={{ background: kpi1Status?.bg ?? "#f9fafb", border: `2px solid ${kpi1Status?.color ?? "#e5e7eb"}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+          <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em", display: "flex", alignItems: "center" }}>
+            Consumption Rate
+            <InfoPopover
+              title="Consumption Rate"
+              explanation="Are you spending at the right pace for the work completed? 1.0 = perfect balance."
+              formula="Rate = (Spent ÷ Budget) ÷ (% Complete ÷ 100)"
+              thresholds="🟢 ≤ 1.10 = On Track · 🟡 ≤ 1.30 = At Risk · 🔴 > 1.30 = High Risk"
+            />
+          </div>
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi1Status?.color ?? "#9ca3af", flexShrink: 0 }}/>
+            <span style={{ fontSize: 20, fontWeight: 800, color: kpi1Status?.color ?? "#374151" }}>
+              {kpi1Status?.label ?? "N/A"}
+            </span>
+          </div>
+          <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
+            Progress: {weightedPct.toFixed(1)}% complete
+          </div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
+            Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} (≤1.10 on track)
+          </div>
+        </div>
+
+        {/* KPI 3 — Needs PCR */}
+        <div style={{ background: pcrStatus.bg, border: `2px solid ${pcrStatus.color}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+          <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, display: "flex", alignItems: "center" }}>
+            Needs PCR?
+            <InfoPopover
+              title="Needs PCR?"
+              explanation="A PCR is needed when planned cost exceeds the approved budget by 10% or more."
+              formula="Overrun % = (Planned − Approved) ÷ Approved × 100"
+              thresholds="🟢 < 10% over = Within Budget · 🔴 ≥ 10% = PCR Required"
+            />
+          </div>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", background: pcrStatus.color, flexShrink: 0 }}/>
+            <span style={{ fontSize: 20, fontWeight: 800, color: pcrStatus.color }}>{pcrStatus.label}</span>
+          </div>
+          {!pcrStatus.notSet && (
+            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              <div>
+                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Approved Budget</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(latestApprovedBudget)}</div>
               </div>
-              {!pcrStatus.notSet && (
-                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Approved Budget</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(latestApprovedBudget)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Planned</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(totalPlanned)}</div>
-                  </div>
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Variance</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: pcrStatus.color, marginTop: 2 }}>
-                      {fmtCurrency(totalPlanned - latestApprovedBudget)} ({pcrOverrun !== null ? (pcrOverrun * 100).toFixed(1) : "0.0"}%)
-                    </div>
-                  </div>
+              <div>
+                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Planned</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(totalPlanned)}</div>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Variance</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: pcrStatus.color, marginTop: 2 }}>
+                  {fmtCurrency(totalPlanned - latestApprovedBudget)} ({pcrOverrun !== null ? (pcrOverrun * 100).toFixed(1) : "0.0"}%)
                 </div>
-              )}
-              {pcrStatus.notSet && (
-                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
-                  Set pmo_latestapprovedbudget on the project record to enable this KPI.
-                </div>
-              )}
+              </div>
             </div>
-
-          <div style={{ background: kpi1Status?.bg ?? "#f9fafb", border: `2px solid ${kpi1Status?.color ?? "#e5e7eb"}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-            <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em" }}>Consumption Rate</div>
-            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi1Status?.color ?? "#9ca3af", flexShrink: 0 }}/>
-              <span style={{ fontSize: 20, fontWeight: 800, color: kpi1Status?.color ?? "#374151" }}>
-                {kpi1Status?.label ?? "N/A"}
-              </span>
+          )}
+          {pcrStatus.notSet && (
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
+              Set pmo_latestapprovedbudget on the project record to enable this KPI.
             </div>
-            <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
-              Progress: {weightedPct.toFixed(1)}% complete
-            </div>
-            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
-              Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} (≤1.10 on track)
-            </div>
-          </div>
-
-          <div style={{ background: kpi2Status.bg, border: `2px solid ${kpi2Status.color}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-            <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em" }}>Budget Remaining Status</div>
-            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi2Status.color, flexShrink: 0 }}/>
-              <span style={{ fontSize: 20, fontWeight: 800, color: kpi2Status.color }}>
-                {kpi2Status.label}
-              </span>
-            </div>
-            <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
-              {availablePct.toFixed(1)}% remaining
-            </div>
-            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
-              {">"}15% sufficient · 5–15% low · {"<"}5% overrun
-            </div>
-          </div>
-        </div>
-
-        {/* Gauge — centre */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: "0 0 300px", background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 8px 12px" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 4 }}>Budget Consumption (% Spent)</div>
-          <BigGauge />
-        </div>
-
-        {/* Value cards */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-          <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-            <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Budget</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: "#111827", marginTop: 8 }}>{fmtCurrency(totalPlanned)}</div>
-            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{leaves.length} tasks</div>
-          </div>
-          <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-            <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Spent</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: "#0f766e", marginTop: 8 }}>{fmtCurrency(totalActual)}</div>
-            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>EV: {fmtCurrency(totalEV)}</div>
-          </div>
-          <div style={{ background: "white", border: `2px solid ${gaugeColor}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-            <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Available</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: gaugeColor, marginTop: 8 }}>{fmtCurrency(totalRemaining)}</div>
-            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{availablePct.toFixed(1)}% of budget</div>
-          </div>
+          )}
         </div>
       </div>
+
+      {/* ── Row 2: Gauge + Value Cards + EVM Metrics ─────────────── */}
+      {(() => {
+        const cpi = totalActual > 0 ? totalEV / totalActual : null;
+        const eac = cpi && cpi > 0 ? totalPlanned / cpi : null;
+        const etc = totalPlanned - totalEV;
+        const cpiColor = cpi === null ? "#6b7280"
+          : cpi >= 0.95 ? "#16a34a"
+          : cpi >= 0.80 ? "#d97706"
+          : "#dc2626";
+        const eacColor = eac === null ? "#6b7280"
+          : eac <= totalPlanned ? "#16a34a"
+          : eac <= totalPlanned * 1.10 ? "#d97706"
+          : "#dc2626";
+        const etcColor = etc <= totalRemaining ? "#16a34a"
+          : etc <= totalRemaining * 1.10 ? "#d97706"
+          : "#dc2626";
+        return (
+          <div style={{ display: "flex", gap: 14, padding: "14px 18px 0", alignItems: "stretch" }}>
+
+            {/* Gauge */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: "0 0 300px", background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 8px 12px" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 4 }}>Budget Consumption (% Spent)</div>
+              <BigGauge />
+            </div>
+
+            {/* Value cards + EVM metrics stacked */}
+            <div style={{ display: "flex", flex: 1, gap: 14 }}>
+
+              {/* Total Budget */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Budget</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: "#111827", marginTop: 8 }}>{fmtCurrency(totalPlanned)}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{weightedPct.toFixed(1)}% complete</div>
+                </div>
+                <div style={{ background: "white", border: `1px solid ${eacColor}`, borderRadius: 10, padding: "14px 20px", flex: 1 }}>
+                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                    EAC — Forecast Final Cost
+                    <InfoPopover
+                      title="EAC — Estimate at Completion"
+                      explanation="Forecasted total cost if current spending efficiency continues."
+                      formula="EAC = Total Budget ÷ CPI"
+                      thresholds="🟢 ≤ Budget = On track · 🟡 ≤ +10% = Slight overrun · 🔴 > +10% = Overrun"
+                    />
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: eacColor, marginTop: 6 }}>{eac !== null ? fmtCurrency(eac) : "—"}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                    {eac !== null ? `${eac <= totalPlanned ? "Under" : "Over"} budget by ${fmtCurrency(Math.abs(eac - totalPlanned))}` : "No spend yet"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Spent */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Spent</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: "#0f766e", marginTop: 8 }}>{fmtCurrency(totalActual)}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>EV: {fmtCurrency(totalEV)}</div>
+                </div>
+                <div style={{ background: "white", border: `1px solid ${cpiColor}`, borderRadius: 10, padding: "14px 20px", flex: 1 }}>
+                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                    CPI — Cost Performance
+                    <InfoPopover
+                      title="CPI — Cost Performance Index"
+                      explanation="For every $1 spent, how much work was done? 1.0 = perfect. Below 1.0 = overspending."
+                      formula="CPI = Earned Value (EV) ÷ Actual Cost"
+                      thresholds="🟢 ≥ 0.95 = On budget · 🟡 0.80–0.95 = At risk · 🔴 < 0.80 = Overrun"
+                    />
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: cpiColor, marginTop: 6 }}>{cpi !== null ? cpi.toFixed(2) : "—"}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                    {cpi === null ? "No spend yet" : cpi >= 0.95 ? "On budget" : cpi >= 0.80 ? "Slight overrun" : "Significant overrun"}
+                    {cpi !== null ? ` · $1 spent = ${fmtCurrency(cpi)} value` : ""}
+                  </div>
+                </div>
+              </div>
+
+              {/* Available */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                <div style={{ background: "white", border: `2px solid ${gaugeColor}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Available</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: gaugeColor, marginTop: 8 }}>{fmtCurrency(totalRemaining)}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{availablePct.toFixed(1)}% of budget</div>
+                </div>
+                <div style={{ background: "white", border: `1px solid ${etcColor}`, borderRadius: 10, padding: "14px 20px", flex: 1 }}>
+                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                    ETC — Cost to Finish
+                    <InfoPopover
+                      title="ETC — Estimate to Complete"
+                      explanation="Money still needed to finish remaining work. If ETC > Available, you have a shortfall."
+                      formula="ETC = Total Budget − Earned Value (EV)"
+                      thresholds="🟢 ETC ≤ Available = Covered · 🔴 ETC > Available = Shortfall"
+                    />
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: etcColor, marginTop: 6 }}>{fmtCurrency(etc)}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                    {etc <= totalRemaining ? "Covered by available budget" : `Shortfall of ${fmtCurrency(etc - totalRemaining)}`}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Row 2: Horizontal Bar Charts ────────────────────────── */}
       <div style={{ display: "flex", gap: 14, padding: "0 18px 16px" }}>
@@ -677,8 +847,8 @@ function HBarChart({ title, bars, total }: {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "#1f5c8b" }}>
-              {["Category", "Qty", "Unit Cost", "Total Cost", "Funding"].map(h => (
-                <th key={h} style={{ padding: "8px 10px", color: "white", fontWeight: 700, fontSize: 13, textAlign: h === "Category" || h === "Funding" ? "left" : "right", borderRight: "1px solid #2d6fa0", whiteSpace: "nowrap" }}>{h}</th>
+              {["Category", "Qty", "Unit Cost", "Total Cost", "Funding", "Remarks"].map(h => (
+                <th key={h} style={{ padding: "8px 10px", color: "white", fontWeight: 700, fontSize: 13, textAlign: h === "Category" || h === "Funding" || h === "Remarks" ? "left" : "right", borderRight: "1px solid #2d6fa0", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -693,12 +863,14 @@ function HBarChart({ title, bars, total }: {
                   <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{fmtCurrency(r.unitCost)}</td>
                   <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{fmtCurrency(r.totalCost)}</td>
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#374151", fontSize: 13 }}>{r.funding}</td>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#6b7280", fontSize: 12, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.remarks}</td>
                 </tr>
               ))
             )}
             <tr style={{ background: "white" }}>
               <td colSpan={3} style={{ padding: "9px 10px", borderTop: "2px solid #e5e7eb", fontWeight: 700, fontSize: 13, color: "#111827" }}>Total</td>
               <td style={{ padding: "9px 10px", textAlign: "right", borderTop: "2px solid #e5e7eb", color: "#4f46e5", fontSize: 14, fontWeight: 400 }}>{fmtCurrency(pidTotal)}</td>
+              <td style={{ borderTop: "2px solid #e5e7eb" }}/>
               <td style={{ borderTop: "2px solid #e5e7eb" }}/>
             </tr>
           </tbody>
@@ -992,8 +1164,8 @@ const CSS = `
   .tg-avatar-name { font-size: 12px; color: #374151; white-space: nowrap; 
     overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
   .tg-summary-panel {
-    position: absolute; top: 0; left: 0; bottom: 0;
-    width: 960px; background: #f9fafb; z-index: 100;
+    position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+    background: #f9fafb; z-index: 100;
     border-right: 1px solid #e5e7eb;
     box-shadow: 4px 0 16px rgba(0,0,0,0.10);
     display: flex; flex-direction: column;
@@ -1001,7 +1173,7 @@ const CSS = `
     overflow-y: auto;
   }
   @keyframes slideInLeft {
-    from { transform: translateX(-960px); }
+    from { transform: translateX(-100%); }
     to   { transform: translateX(0); }
   }
   .tg-summary-header {
