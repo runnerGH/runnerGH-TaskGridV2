@@ -11,11 +11,12 @@ import * as ReactDOM from "react-dom";
 import { TaskNode, updateNodeInTree } from "./buildTree";
 
 interface Props {
-  data:      TaskNode[];
-  onSave:    (changes: Record<string, Partial<TaskNode>>) => Promise<void>;
-  onRefresh: () => void;
-  userId:    string;
-  taskIds:   string[];
+  data:                  TaskNode[];
+  onSave:                (changes: Record<string, Partial<TaskNode>>) => Promise<void>;
+  onRefresh:             () => void;
+  userId:                string;
+  taskIds:               string[];
+  latestApprovedBudget:  number;
 }
 
 const COST_CATEGORIES = [
@@ -198,6 +199,515 @@ function BulkServiceSearch({ items, onSelect }: {
   );
 }
 
+function GaugeChart({ pct, color }: { pct: number; color: string }) {
+  const r = 82, cx = 105, cy = 100;
+  const angle = Math.PI + (pct / 100) * Math.PI;
+  const x1 = cx - r, y1 = cy;
+  const x2 = cx + r, y2 = cy;
+  const px = cx + r * Math.cos(angle);
+  const py = cy + r * Math.sin(angle);
+  const largeArc = pct > 50 ? 1 : 0;
+  return (
+    <svg width="210" height="118" viewBox="0 0 210 118">
+      <path d={`M ${x1} ${y1} A ${r} ${r} 0 1 1 ${x2} ${y2}`}
+        fill="none" stroke="#e5e7eb" strokeWidth="16" strokeLinecap="round"/>
+      {pct > 0 && (
+        <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${px} ${py}`}
+          fill="none" stroke={color} strokeWidth="16" strokeLinecap="round"/>
+      )}
+      <line x1={cx} y1={cy}
+        x2={cx + (r - 12) * Math.cos(angle)}
+        y2={cy + (r - 12) * Math.sin(angle)}
+        stroke="#374151" strokeWidth="2.5" strokeLinecap="round"/>
+      <circle cx={cx} cy={cy} r="5" fill="#374151"/>
+      <text x="8" y="116" fontSize="10" fill="#9ca3af" fontFamily="Segoe UI, sans-serif">0%</text>
+      <text x="172" y="116" fontSize="10" fill="#9ca3af" fontFamily="Segoe UI, sans-serif">100%</text>
+      <text x={cx} y={cy - 16} fontSize="24" fontWeight="800" fill={color}
+        textAnchor="middle" fontFamily="Segoe UI, sans-serif">
+        {Math.min(pct, 999).toFixed(1)}%
+      </text>
+      <text x={cx} y={cy} fontSize="11" fill="#6b7280"
+        textAnchor="middle" fontFamily="Segoe UI, sans-serif">spent</text>
+    </svg>
+  );
+}
+
+function DonutChart({ slices, size = 120 }: {
+  slices: { label: string; value: number; color: string }[];
+  size?: number;
+}) {
+  const total = slices.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return <p style={{ color: "#9ca3af", fontSize: 12 }}>No data</p>;
+  const cx = size / 2, cy = size / 2, r = size / 2 - 10, ir = r * 0.55;
+  let cumAngle = -Math.PI / 2;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {slices.filter(s => s.value > 0).map((s, i) => {
+        const angle = (s.value / total) * 2 * Math.PI;
+        const x1 = cx + r * Math.cos(cumAngle);
+        const y1 = cy + r * Math.sin(cumAngle);
+        const x2 = cx + r * Math.cos(cumAngle + angle);
+        const y2 = cy + r * Math.sin(cumAngle + angle);
+        const ix1 = cx + ir * Math.cos(cumAngle);
+        const iy1 = cy + ir * Math.sin(cumAngle);
+        const ix2 = cx + ir * Math.cos(cumAngle + angle);
+        const iy2 = cy + ir * Math.sin(cumAngle + angle);
+        const large = angle > Math.PI ? 1 : 0;
+        const path = `M ${ix1} ${iy1} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${ir} ${ir} 0 ${large} 0 ${ix1} ${iy1} Z`;
+        cumAngle += angle;
+        return <path key={i} d={path} fill={s.color} stroke="white" strokeWidth="1.5"/>;
+      })}
+    </svg>
+  );
+}
+
+const DONUT_COLORS = ["#4f46e5","#0f766e","#d97706","#dc2626","#7c3aed","#0284c7","#16a34a","#9ca3af"];
+
+function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[]; onClose: () => void; latestApprovedBudget: number }) {
+
+  function flatLeaves(nodes: TaskNode[]): TaskNode[] {
+    const out: TaskNode[] = [];
+    function walk(n: TaskNode) {
+      if (!n.subRows || n.subRows.length === 0) { out.push(n); return; }
+      n.subRows.forEach(walk);
+    }
+    nodes.forEach(walk);
+    return out;
+  }
+  const leaves = flatLeaves(data);
+
+  const totalPlanned   = leaves.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
+  const totalActual    = leaves.reduce((s, n) => s + (n.totalActualCost  ?? 0), 0);
+  const totalRemaining = totalPlanned - totalActual;
+  const totalEV        = leaves.reduce((s, n) => s + (n.earnedValue      ?? 0), 0);
+
+  const weightedPct = totalPlanned > 0
+    ? leaves.reduce((s, n) => s + ((n.pctDone ?? 0) * (n.totalPlannedCost ?? 0)), 0) / totalPlanned
+    : 0;
+
+  const consumptionRate = (weightedPct > 0 && totalPlanned > 0)
+    ? (totalActual / totalPlanned) / (weightedPct / 100)
+    : null;
+  const kpi1Status = consumptionRate === null ? null
+    : consumptionRate <= 1.10 ? { label: "On Track",         color: "#16a34a", bg: "#f0fdf4" }
+    : consumptionRate <= 1.30 ? { label: "Overrun Risk",     color: "#d97706", bg: "#fffbeb" }
+    :                           { label: "High Overrun Risk", color: "#dc2626", bg: "#fef2f2" };
+
+  const availablePct = totalPlanned > 0 ? (totalRemaining / totalPlanned) * 100 : 0;
+  const kpi2Status = availablePct > 15
+    ? { label: "Sufficient",     color: "#16a34a", bg: "#f0fdf4" }
+    : availablePct >= 5
+    ? { label: "Low Balance",    color: "#d97706", bg: "#fffbeb" }
+    : { label: "Budget Overrun", color: "#dc2626", bg: "#fef2f2" };
+
+  const pctConsumed = totalPlanned > 0 ? Math.min((totalActual / totalPlanned) * 100, 100) : 0;
+  const gaugeColor  = kpi2Status.color;
+
+  // KPI 3 — Needs PCR: triggered when totalPlanned exceeds latestApprovedBudget by ≥10%
+  const pcrOverrun = latestApprovedBudget > 0
+    ? (totalPlanned - latestApprovedBudget) / latestApprovedBudget
+    : null;
+  const pcrStatus = pcrOverrun === null
+    ? { label: "Not Set", color: "#6b7280", bg: "#f9fafb", triggered: false, notSet: true }
+    : pcrOverrun >= 0.10
+    ? { label: "PCR Required",  color: "#dc2626", bg: "#fef2f2", triggered: true,  notSet: false }
+    : pcrOverrun >= 0
+    ? { label: "Within Budget", color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false }
+    : { label: "Under Budget",  color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false };
+
+  const COST_CAT_MAP: Record<number, string> = {
+    847020000: "Staff", 847020001: "Supplies", 847020002: "Equipment",
+    847020003: "Contractual", 847020004: "Travel", 847020005: "Indirect",
+  };
+  const FUNDING_MAP: Record<number, string> = {
+    0: "Regular Budget", 1: "Support Account", 2: "xB", 3: "10RCR", 4: "20PCR",
+  };
+
+  const byCategory: Record<string, number> = {};
+  leaves.forEach(n => {
+    const label = n.costCategory != null ? (COST_CAT_MAP[n.costCategory] ?? "Other") : "Unassigned";
+    byCategory[label] = (byCategory[label] ?? 0) + (n.totalActualCost ?? 0);
+  });
+
+  const byFunding: Record<string, number> = {};
+  leaves.forEach(n => {
+    const label = n.fundingSource != null ? (FUNDING_MAP[n.fundingSource] ?? "Other") : "Unassigned";
+    byFunding[label] = (byFunding[label] ?? 0) + (n.totalPlannedCost ?? 0);
+  });
+
+  const DONUT_COLORS = ["#4f46e5","#0f766e","#d97706","#dc2626","#7c3aed","#0284c7","#16a34a","#9ca3af"];
+  const catSlices  = Object.entries(byCategory).map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
+  const fundSlices = Object.entries(byFunding).map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
+
+  const COST_CATS_FULL = [
+    { value: 847020000, label: "Staff and Other Personnel Costs" },
+    { value: 847020001, label: "Supplies, Commodities, and Materials" },
+    { value: 847020002, label: "Equipment, Vehicles, and Furniture" },
+    { value: 847020003, label: "Contractual Services" },
+    { value: 847020004, label: "Travel" },
+    { value: 847020005, label: "Indirect Costs" },
+  ];
+
+  type PidRow = { category: string; qty: number; unitCost: number; totalCost: number; funding: string };
+  const pidRows: PidRow[] = [];
+  COST_CATS_FULL.forEach(cat => {
+    const catLeaves = leaves.filter(n => n.costCategory === cat.value);
+    if (catLeaves.length === 0) return;
+    const fundingGroups: Record<string, TaskNode[]> = {};
+    catLeaves.forEach(n => {
+      const f = n.fundingSource != null ? (FUNDING_MAP[n.fundingSource] ?? "Other") : "Unassigned";
+      if (!fundingGroups[f]) fundingGroups[f] = [];
+      fundingGroups[f].push(n);
+    });
+    Object.entries(fundingGroups).forEach(([funding, tasks]) => {
+      const qty      = tasks.reduce((s, n) => s + (n.quantity ?? 0), 0);
+      const total    = tasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
+      const unitCost = qty > 0 ? total / qty : 0;
+      pidRows.push({ category: cat.label, qty, unitCost, totalCost: total, funding });
+    });
+  });
+  const pidTotal = pidRows.reduce((s, r) => s + r.totalCost, 0);
+
+function HBarChart({ title, bars, total }: {
+    title: string;
+    bars: { label: string; value: number; color: string }[];
+    total: number;
+  }) {
+    const maxVal = Math.max(...bars.map(b => b.value), 1);
+    return (
+      <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "18px 20px", flex: 1 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 16 }}>{title}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {bars.filter(b => b.value > 0).map((b, i) => {
+            const pct = total > 0 ? (b.value / total) * 100 : 0;
+            const barPct = (b.value / maxVal) * 100;
+            return (
+              <div key={i}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{b.label}</span>
+                  <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{fmtCurrency(b.value)}</span>
+                    <span style={{ fontSize: 12, color: "#6b7280", minWidth: 36, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+                  </div>
+                </div>
+                <div style={{ height: 20, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", width: `${barPct}%`,
+                    background: b.color, borderRadius: 4,
+                    transition: "width 0.4s ease",
+                  }}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>Total</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: "#111827" }}>{fmtCurrency(total)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Power BI-style donut with callout lines
+  function DonutWithLabels({ slices, title }: {
+    slices: { label: string; value: number; color: string }[];
+    title: string;
+  }) {
+    const total = slices.reduce((s, d) => s + d.value, 0);
+    if (total === 0) return <p style={{ color: "#9ca3af", fontSize: 13 }}>No data</p>;
+
+    const W = 450, H = 340;
+    const cx = W / 2, cy = H / 2 - 10;
+    const r = 105, ir = r * 0.52;
+    let cumAngle = -Math.PI / 2;
+
+    const segAngles = slices.filter(s => s.value > 0).map(s => {
+      const a = (s.value / total) * 2 * Math.PI;
+      const mid = cumAngle + a / 2;
+      cumAngle += a;
+      return { ...s, angle: a, mid };
+    });
+
+    return (
+      <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "16px", flex: 1 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{title}</div>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+          {/* Donut slices */}
+          {(() => {
+            let ca = -Math.PI / 2;
+            return slices.filter(s => s.value > 0).map((s, i) => {
+              const a = (s.value / total) * 2 * Math.PI;
+              const x1 = cx + r  * Math.cos(ca),       y1 = cy + r  * Math.sin(ca);
+              const x2 = cx + r  * Math.cos(ca + a),   y2 = cy + r  * Math.sin(ca + a);
+              const ix1= cx + ir * Math.cos(ca),        iy1= cy + ir * Math.sin(ca);
+              const ix2= cx + ir * Math.cos(ca + a),    iy2= cy + ir * Math.sin(ca + a);
+              const large = a > Math.PI ? 1 : 0;
+              const d = `M ${ix1} ${iy1} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${ir} ${ir} 0 ${large} 0 ${ix1} ${iy1} Z`;
+              ca += a;
+              return <path key={i} d={d} fill={s.color} stroke="white" strokeWidth="2"/>;
+            });
+          })()}
+
+          {/* Callout lines + labels */}
+          {segAngles.filter(s => (s.value / total) > 0.03).map((s, i) => {
+            const pct = ((s.value / total) * 100).toFixed(0);
+            const lineR  = r + 12;
+            const labelR = r + 28;
+            const lx = cx + lineR * Math.cos(s.mid);
+            const ly = cy + lineR * Math.sin(s.mid);
+            const tx = cx + labelR * Math.cos(s.mid);
+            const ty = cy + labelR * Math.sin(s.mid);
+            const isRight = Math.cos(s.mid) >= 0;
+            const endX = tx + (isRight ? 22 : -22);
+            return (
+              <g key={i}>
+                <line x1={cx + r * Math.cos(s.mid)} y1={cy + r * Math.sin(s.mid)}
+                  x2={lx} y2={ly} stroke={s.color} strokeWidth="1.5"/>
+                <line x1={lx} y1={ly} x2={endX} y2={ty}
+                  stroke={s.color} strokeWidth="1.5"/>
+                <text x={isRight ? endX + 4 : endX - 4} y={ty - 6}
+                  fontSize="11" fontWeight="700" fill="#111827"
+                  textAnchor={isRight ? "start" : "end"}
+                  fontFamily="Segoe UI, sans-serif">
+                  {pct}%
+                </text>
+                <text x={isRight ? endX + 4 : endX - 4} y={ty + 7}
+                  fontSize="10" fill="#374151"
+                  textAnchor={isRight ? "start" : "end"}
+                  fontFamily="Segoe UI, sans-serif">
+                  {s.label}
+                </text>
+                <text x={isRight ? endX + 4 : endX - 4} y={ty + 19}
+                  fontSize="10" fill="#6b7280"
+                  textAnchor={isRight ? "start" : "end"}
+                  fontFamily="Segoe UI, sans-serif">
+                  {fmtCurrency(s.value)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Centre total */}
+          <text x={cx} y={cy - 6} fontSize="12" fill="#6b7280" textAnchor="middle"
+            fontFamily="Segoe UI, sans-serif">Total</text>
+          <text x={cx} y={cy + 12} fontSize="13" fontWeight="700" fill="#111827"
+            textAnchor="middle" fontFamily="Segoe UI, sans-serif">
+            {fmtCurrency(total)}
+          </text>
+        </svg>
+      </div>
+    );
+  }
+
+  const [pidCopied, setPidCopied] = React.useState(false);
+  function copyPidTable() {
+    const header = "Category\tQty\tUnit Cost\tTotal Cost\tFunding Source";
+    const rows = pidRows.map(r =>
+      `${r.category}\t${r.qty.toFixed(2)}\t${fmtCurrency(r.unitCost)}\t${fmtCurrency(r.totalCost)}\t${r.funding}`
+    );
+    const total = `Total\t\t\t${fmtCurrency(pidTotal)}\t`;
+    navigator.clipboard.writeText([header, ...rows, total].join("\n")).then(() => {
+      setPidCopied(true);
+      setTimeout(() => setPidCopied(false), 2000);
+    });
+  }
+
+  // Gauge — bigger, standalone
+  function BigGauge() {
+    const r = 110, cx = 145, cy = 130;
+    const angle = Math.PI + (pctConsumed / 100) * Math.PI;
+    const x1 = cx - r, y1 = cy;
+    const x2 = cx + r, y2 = cy;
+    const px = cx + r * Math.cos(angle);
+    const py = cy + r * Math.sin(angle);
+    const largeArc = pctConsumed > 50 ? 1 : 0;
+    return (
+      <svg width="290" height="162" viewBox="0 0 290 162">
+        <path d={`M ${x1} ${y1} A ${r} ${r} 0 1 1 ${x2} ${y2}`}
+          fill="none" stroke="#e5e7eb" strokeWidth="20" strokeLinecap="round"/>
+        {pctConsumed > 0 && (
+          <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${px} ${py}`}
+            fill="none" stroke={gaugeColor} strokeWidth="20" strokeLinecap="round"/>
+        )}
+        <line x1={cx} y1={cy}
+          x2={cx + (r - 16) * Math.cos(angle)}
+          y2={cy + (r - 16) * Math.sin(angle)}
+          stroke="#1f2937" strokeWidth="3.5" strokeLinecap="round"/>
+        <circle cx={cx} cy={cy} r="7" fill="#1f2937"/>
+        <text x="8" y="158" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">0%</text>
+        <text x="244" y="158" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">100%</text>
+        <text x={cx} y={cy - 58} fontSize="13" fill="#374151"
+          textAnchor="middle" fontFamily="Segoe UI, sans-serif" fontWeight="700">SPENT</text>
+        <text x={cx} y={cy - 16} fontSize="36" fontWeight="800" fill={gaugeColor}
+          textAnchor="middle" fontFamily="Segoe UI, sans-serif">
+          {Math.min(pctConsumed, 999).toFixed(1)}%
+        </text>
+      </svg>
+    );
+  }
+
+  return (
+    <div className="tg-summary-panel">
+      <div className="tg-summary-header">
+        <span className="tg-summary-title">📊 Budget Summary</span>
+        <button className="tg-summary-close" onClick={onClose}>✕</button>
+      </div>
+
+      {/* ── Row 1: KPIs + Gauge + Value Cards ───────────────────── */}
+<div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "stretch" }}>
+
+        {/* KPI cards */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: "0 0 250px" }}>
+
+          {/* KPI 3 — Needs PCR */}
+          <div style={{ background: pcrStatus.bg, border: `2px solid ${pcrStatus.color}`, borderRadius: 10, padding: "14px 20px" }}>
+              <div style={{ fontSize: 15, color: "#111827", fontWeight: 800 }}>Needs PCR?</div>
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: pcrStatus.color, flexShrink: 0 }}/>
+                <span style={{ fontSize: 18, fontWeight: 800, color: pcrStatus.color }}>{pcrStatus.label}</span>
+              </div>
+              {!pcrStatus.notSet && (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Approved Budget</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(latestApprovedBudget)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Planned</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(totalPlanned)}</div>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Variance</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: pcrStatus.color, marginTop: 2 }}>
+                      {fmtCurrency(totalPlanned - latestApprovedBudget)} ({pcrOverrun !== null ? (pcrOverrun * 100).toFixed(1) : "0.0"}%)
+                    </div>
+                  </div>
+                </div>
+              )}
+              {pcrStatus.notSet && (
+                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
+                  Set pmo_latestapprovedbudget on the project record to enable this KPI.
+                </div>
+              )}
+            </div>
+
+          <div style={{ background: kpi1Status?.bg ?? "#f9fafb", border: `2px solid ${kpi1Status?.color ?? "#e5e7eb"}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+            <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em" }}>Consumption Rate</div>
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi1Status?.color ?? "#9ca3af", flexShrink: 0 }}/>
+              <span style={{ fontSize: 20, fontWeight: 800, color: kpi1Status?.color ?? "#374151" }}>
+                {kpi1Status?.label ?? "N/A"}
+              </span>
+            </div>
+            <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
+              Progress: {weightedPct.toFixed(1)}% complete
+            </div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
+              Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} (≤1.10 on track)
+            </div>
+          </div>
+
+          <div style={{ background: kpi2Status.bg, border: `2px solid ${kpi2Status.color}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+            <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em" }}>Budget Remaining Status</div>
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi2Status.color, flexShrink: 0 }}/>
+              <span style={{ fontSize: 20, fontWeight: 800, color: kpi2Status.color }}>
+                {kpi2Status.label}
+              </span>
+            </div>
+            <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
+              {availablePct.toFixed(1)}% remaining
+            </div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
+              {">"}15% sufficient · 5–15% low · {"<"}5% overrun
+            </div>
+          </div>
+        </div>
+
+        {/* Gauge — centre */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: "0 0 300px", background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 8px 12px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 4 }}>Budget Consumption (% Spent)</div>
+          <BigGauge />
+        </div>
+
+        {/* Value cards */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+          <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+            <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Budget</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#111827", marginTop: 8 }}>{fmtCurrency(totalPlanned)}</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{leaves.length} tasks</div>
+          </div>
+          <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+            <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Spent</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#0f766e", marginTop: 8 }}>{fmtCurrency(totalActual)}</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>EV: {fmtCurrency(totalEV)}</div>
+          </div>
+          <div style={{ background: "white", border: `2px solid ${gaugeColor}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
+            <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Available</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: gaugeColor, marginTop: 8 }}>{fmtCurrency(totalRemaining)}</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{availablePct.toFixed(1)}% of budget</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Row 2: Horizontal Bar Charts ────────────────────────── */}
+      <div style={{ display: "flex", gap: 14, padding: "0 18px 16px" }}>
+        <HBarChart
+          title="Actual Spend by Category"
+          bars={catSlices.map(s => ({ label: s.label, value: s.value, color: s.color }))}
+          total={totalActual}
+        />
+        <HBarChart
+          title="Planned Budget by Funding Source"
+          bars={fundSlices.map(s => ({ label: s.label, value: s.value, color: s.color }))}
+          total={totalPlanned}
+        />
+      </div>
+
+      {/* ── Row 3: Budget Table ──────────────────────────────────── */}
+      <div style={{ padding: "0 18px 24px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Budget Table</div>
+          <button className="tg-btn" style={{ fontSize: 12, height: 28, padding: "0 12px", border: "1px solid #e5e7eb", color: pidCopied ? "#16a34a" : "#374151" }}
+            onClick={copyPidTable}>
+            {pidCopied ? "✓ Copied!" : "📋 Copy"}
+          </button>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: "#1f5c8b" }}>
+              {["Category", "Qty", "Unit Cost", "Total Cost", "Funding"].map(h => (
+                <th key={h} style={{ padding: "8px 10px", color: "white", fontWeight: 700, fontSize: 13, textAlign: h === "Category" || h === "Funding" ? "left" : "right", borderRight: "1px solid #2d6fa0", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pidRows.length === 0 ? (
+              <tr><td colSpan={5} style={{ padding: "14px", color: "#6b7280", textAlign: "center", fontSize: 13 }}>No budget data — assign Cost Categories and Funding Sources to tasks</td></tr>
+            ) : (
+              pidRows.map((r, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "white" : "#f9fafb" }}>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{r.category}</td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{r.qty.toFixed(0)}</td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{fmtCurrency(r.unitCost)}</td>
+                  <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{fmtCurrency(r.totalCost)}</td>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#374151", fontSize: 13 }}>{r.funding}</td>
+                </tr>
+              ))
+            )}
+            <tr style={{ background: "white" }}>
+              <td colSpan={3} style={{ padding: "9px 10px", borderTop: "2px solid #e5e7eb", fontWeight: 700, fontSize: 13, color: "#111827" }}>Total</td>
+              <td style={{ padding: "9px 10px", textAlign: "right", borderTop: "2px solid #e5e7eb", color: "#4f46e5", fontSize: 14, fontWeight: 400 }}>{fmtCurrency(pidTotal)}</td>
+              <td style={{ borderTop: "2px solid #e5e7eb" }}/>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function RefreshIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -232,8 +742,8 @@ const CSS = `
   .tg-input-wrap:focus-within { cursor: text !important; }
   .tg-toolbar {
     background: #fff; border-bottom: 1px solid #e5e7eb;
-    padding: 0 8px; display: flex; align-items: center;
-    gap: 2px; flex-shrink: 0; height: 44px;
+    padding: 0 12px; display: flex; align-items: center;
+    gap: 2px; flex-shrink: 0; height: 54px;
     position: sticky; top: 0; z-index: 10;
   }
   .tg-title {
@@ -243,12 +753,12 @@ const CSS = `
   .tg-divider { width: 1px; height: 16px; background: #e5e7eb; margin: 0 6px; }
   .tg-btn {
     display: inline-flex; align-items: center; gap: 4px;
-    padding: 4px 12px; border-radius: 4px; border: none;
+    padding: 4px 14px; border-radius: 4px; border: none;
     font-size: 14px; cursor: pointer; font-weight: 400;
     background: transparent; color: #323130; transition: background 0.1s;
-    height: 32px; white-space: nowrap;
+    height: 42px; white-space: nowrap;
   }
-  .tg-btn:hover         { background: #edebe9; }
+  .tg-btn:hover         { background: #f3f2f1; }
   .tg-btn-save          { background: #0078d4; color: white; font-size: 14px; }
   .tg-btn-save:hover    { background: #106ebe; }
   .tg-btn-save:disabled { background: #c7e0f4; cursor: not-allowed; color: white; }
@@ -481,6 +991,43 @@ const CSS = `
   }
   .tg-avatar-name { font-size: 12px; color: #374151; white-space: nowrap; 
     overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+  .tg-summary-panel {
+    position: absolute; top: 0; left: 0; bottom: 0;
+    width: 960px; background: #f9fafb; z-index: 100;
+    border-right: 1px solid #e5e7eb;
+    box-shadow: 4px 0 16px rgba(0,0,0,0.10);
+    display: flex; flex-direction: column;
+    animation: slideInLeft 0.2s ease;
+    overflow-y: auto;
+  }
+  @keyframes slideInLeft {
+    from { transform: translateX(-960px); }
+    to   { transform: translateX(0); }
+  }
+  .tg-summary-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid #e5e7eb;
+    flex-shrink: 0; background: white;
+  }
+  .tg-summary-title { font-size: 16px; font-weight: 600; color: #1f2937; }
+  .tg-summary-close {
+    background: none; border: none; cursor: pointer; color: #605e5c;
+    font-size: 18px; line-height: 1; padding: 0;
+  }
+  .tg-summary-close:hover { color: #1f2937; }
+  .tg-kpi-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; padding: 14px 16px;
+  }
+  .tg-kpi-card {
+    background: white; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .tg-kpi-label { font-size: 11px; color: #6b7280; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .tg-kpi-value { font-size: 20px; font-weight: 700; color: #111827; }
+  .tg-kpi-sub   { font-size: 11px; color: #9ca3af; }
+  .tg-chart-section { padding: 0 16px 16px; }
+  .tg-chart-title { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px; margin-top: 14px; }
 `;
 
 function ChevronRight() {
@@ -808,7 +1355,7 @@ function ServiceCombobox({ value, items, onChange }: {
   );
 }
 
-export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds }: Props) {
+export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds, latestApprovedBudget }: Props) {
   const [data, setData]             = React.useState<TaskNode[]>(initialData);
   //const [expanded, setExpanded]     = React.useState<ExpandedState>({ "0": true });
   const [allExpanded, setAllExpanded] = React.useState(false);
@@ -878,6 +1425,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     const [filterService, setFilterService] = React.useState<Set<string>>(new Set());
     const [selectedRows, setSelectedRows] = React.useState<string[]>([]);
     const [lastSelectedId, setLastSelectedId]   = React.useState<string | null>(null);
+    const [summaryOpen, setSummaryOpen] = React.useState(false);
     const [sectionOpen, setSectionOpen] = React.useState<Record<string, boolean>>({
       funding: true, category: true, service: true, assignee: true,
     });
@@ -1308,7 +1856,7 @@ return (
                 : [...new Set([...selectedRows, ...childIds])]);
             }}
             style={{
-              width: 8, height: 8,
+              width: 9, height: 9,
               border: allSelected ? "2px solid #107c10" : someSelected ? "2px solid #107c10" : "2px solid #d1d5db",
               borderRadius: 2,
               background: allSelected ? "#107c10" : someSelected ? "white" : "white",
@@ -1336,7 +1884,7 @@ return (
         <div
           onClick={e => { e.stopPropagation(); handleRowSelect(row, e as any); }}
           style={{
-            width: 8, height: 8,
+            width: 9, height: 9,
             border: isSelected ? "2px solid #107c10" : "2px solid #d1d5db",
             borderRadius: 2,
             background: isSelected ? "#107c10" : "white",
@@ -1713,10 +2261,7 @@ function toggleColumn(id: string) {
       <style>{CSS}</style>
 
       <div className="tg-toolbar">
-  <span className="tg-title">
-    <GridIcon />Task Grid
-  </span>
-  <div className="tg-divider" />
+  <div style={{ width: 6 }} />
   <button className="tg-btn" onClick={toggleExpandAll}>
     {allExpanded ? (
       <React.Fragment>
@@ -1743,6 +2288,15 @@ function toggleColumn(id: string) {
     <ColumnsIcon />Columns
   </button>
 
+  <button className="tg-btn" onClick={() => setSummaryOpen(o => !o)}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+      <line x1="6" y1="20" x2="6" y2="14"/>
+    </svg>
+    Summary
+    {summaryOpen && <span className="tg-filter-badge">●</span>}
+  </button>
   <button className="tg-btn" onClick={() => setFilterOpen(o => !o)}>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1854,6 +2408,9 @@ function toggleColumn(id: string) {
 
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
 
+      {summaryOpen && (
+        <SummaryPanel data={data} onClose={() => setSummaryOpen(false)} latestApprovedBudget={latestApprovedBudget} />
+      )}
       {filterOpen && (
         <div className="tg-filter-panel">
           <div className="tg-filter-header">

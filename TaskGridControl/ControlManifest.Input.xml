@@ -53,7 +53,7 @@
       <property-set name="fundingSource" display-name-key="Funding Source"
                     of-type="OptionSet"     usage="bound"        required="false" />
       <property-set name="effortCompleted" display-name-key="Effort Completed"
-                    of-type="Decimal"       usage="bound"        required="false" />               
+                    of-type="Decimal"       usage="bound"        required="false" />         
     </data-set>
     <resources>
       <code path="index.ts" order="1" />

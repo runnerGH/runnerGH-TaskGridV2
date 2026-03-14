@@ -95,6 +95,7 @@ export class TaskGridControl
 
   private container!: HTMLDivElement;
   private notifyOutputChanged!: () => void;
+  private latestApprovedBudget: number = 0;
 
 public init(
   context: ComponentFramework.Context<IInputs>,
@@ -200,17 +201,40 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
       ? String((context.parameters.TaskDataSet.records[firstId] as any)
           .raw?._msdyn_project_value ?? "")
       : "";
-
     // Collect all task record IDs for resource assignment filtering
     const taskIds = context.parameters.TaskDataSet.sortedRecordIds;
 
+    // Fetch Latest Approved Budget once using first task ID to resolve project
+    if (this.latestApprovedBudget === 0 && taskIds.length > 0) {
+      const firstTaskId = taskIds[0];
+      fetch(`/api/data/v9.2/msdyn_projecttasks(${firstTaskId})?$select=_msdyn_project_value`)
+        .then(r => r.ok ? r.json() : null)
+        .then(task => {
+          if (!task) return;
+          const pid = task["_msdyn_project_value"];
+          if (!pid) return;
+          return fetch(`/api/data/v9.2/msdyn_projects(${pid})?$select=pmo_latestapprovedbudget`)
+            .then(r => r.ok ? r.json() : null)
+            .then(project => {
+              if (!project) return;
+              const val = Number(project["pmo_latestapprovedbudget"] ?? 0);
+              if (val !== this.latestApprovedBudget) {
+                this.latestApprovedBudget = val;
+                context.parameters.TaskDataSet.refresh();
+              }
+            });
+        })
+        .catch(() => { /* silently ignore */ });
+    }
+
     ReactDOM.render(
       React.createElement(TaskGrid, {
-        data:      rolledUp,
-        onSave:    this.saveToDataverse.bind(this),
-        onRefresh: () => context.parameters.TaskDataSet.refresh(),
-        userId:    context.userSettings.userId,
+        data:                 rolledUp,
+        onSave:               this.saveToDataverse.bind(this),
+        onRefresh:            () => context.parameters.TaskDataSet.refresh(),
+        userId:               context.userSettings.userId,
         taskIds,
+        latestApprovedBudget: this.latestApprovedBudget,
       }),
       this.container
     );
