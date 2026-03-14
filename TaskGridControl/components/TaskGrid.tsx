@@ -1272,11 +1272,26 @@ function ResourceCell({ resources }: { resources: ResourceItem[] }) {
   if (!resources || resources.length === 0) {
     return <span className="tg-dash">—</span>;
   }
+
+ // Single assignee — show avatar + full name
+  if (resources.length === 1) {
+    const r = resources[0];
+    return (
+      <div className="tg-avatar-row">
+        <div className="tg-avatar" style={{ background: getColor(r.name), width: 30, height: 30, fontSize: 11 }}>
+          {getInitials(r.name)}
+        </div>
+        <span className="tg-avatar-name">{r.name}</span>
+      </div>
+    );
+  }
+
+  // Multiple assignees — one per row with name
   return (
     <div className="tg-avatars">
       {resources.map(r => (
         <div key={r.id} className="tg-avatar-row">
-          <div className="tg-avatar" style={{ background: getColor(r.name) }}>
+          <div className="tg-avatar" style={{ background: getColor(r.name), width: 30, height: 30, fontSize: 11 }}>
             {getInitials(r.name)}
           </div>
           <span className="tg-avatar-name">{r.name}</span>
