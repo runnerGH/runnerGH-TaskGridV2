@@ -1286,17 +1286,33 @@ function ResourceCell({ resources }: { resources: ResourceItem[] }) {
     );
   }
 
-  // Multiple assignees — one per row with name
+  // Multiple assignees — stacked avatars with count
+  const stackWidth = 30 + (resources.length - 1) * 20;
   return (
-    <div className="tg-avatars">
-      {resources.map(r => (
-        <div key={r.id} className="tg-avatar-row">
-          <div className="tg-avatar" style={{ background: getColor(r.name), width: 30, height: 30, fontSize: 11 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ position: "relative", width: stackWidth, height: 30, flexShrink: 0 }}>
+        {resources.map((r, i) => (
+          <div
+            key={r.id}
+            title={r.name}
+            className="tg-avatar"
+            style={{
+              background: getColor(r.name),
+              width: 30, height: 30, fontSize: 11,
+              position: "absolute",
+              top: 0, left: i * 20,
+              border: "2px solid white",
+              zIndex: resources.length - i,
+              cursor: "default",
+            }}
+          >
             {getInitials(r.name)}
           </div>
-          <span className="tg-avatar-name">{r.name}</span>
-        </div>
-      ))}
+        ))}
+      </div>
+      <span style={{ fontSize: 11, color: "#6b7280" }}>
+        {resources.length} people
+      </span>
     </div>
   );
 }
