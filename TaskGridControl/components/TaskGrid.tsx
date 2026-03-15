@@ -363,10 +363,10 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
 
   const availablePct = totalPlanned > 0 ? (totalRemaining / totalPlanned) * 100 : 0;
   const kpi2Status = availablePct > 15
-    ? { label: "Sufficient",     color: "#16a34a", bg: "#f0fdf4" }
+    ? { label: "High Balance Available", color: "#16a34a", bg: "#f0fdf4" }
     : availablePct >= 5
-    ? { label: "Low Balance",    color: "#d97706", bg: "#fffbeb" }
-    : { label: "Budget Overrun", color: "#dc2626", bg: "#fef2f2" };
+    ? { label: "Low Balance Available",  color: "#d97706", bg: "#fffbeb" }
+    : { label: "Critical Balance",       color: "#dc2626", bg: "#fef2f2" };
 
   const pctConsumed = totalPlanned > 0 ? Math.min((totalActual / totalPlanned) * 100, 100) : 0;
   const gaugeColor  = kpi2Status.color;
@@ -634,7 +634,7 @@ function HBarChart({ title, bars, total }: {
               title="Budget Remaining Status"
               explanation="How much budget is still available to spend."
               formula="Available = Total Planned − Total Spent"
-              thresholds="🟢 > 15% = Sufficient · 🟡 5–15% = Low · 🔴 < 5% = Overrun"
+              thresholds="🟢 > 15% = High Balance Available · 🟡 5–15% = Low Balance Available · 🔴 < 5% = Critical Balance"
             />
           </div>
           <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
@@ -1534,7 +1534,7 @@ function ServiceCombobox({ value, items, onChange }: {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           border: open ? "2px solid #107c10" : hovered ? "1px solid #107c10" : "1px solid transparent",
           borderRadius: 0, padding: "2px 6px",
-          background: open || hovered ? "white" : "transparent", cursor: "pointer", fontSize: 13,
+          background: open || hovered ? "white" : "transparent", cursor: "cell", fontSize: 13,
           color: selected ? "#1f2937" : "#9ca3af",
           minHeight: 0, height: "100%",
           userSelect: "none", width: "100%", maxWidth: 260,
