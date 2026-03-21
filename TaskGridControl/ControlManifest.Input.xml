@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest>
-  <control namespace="Contoso" constructor="TaskGridControl"
+  <control namespace="UNPPM" constructor="TaskGridControl"
            version="1.0.0" display-name-key="Task Grid Control"
            description-key="Editable hierarchical task grid"
            control-type="standard">
@@ -21,8 +21,6 @@
       <property-set name="costCategory"     display-name-key="Cost Category"
                     of-type="OptionSet"            usage="bound" required="false" />
       <property-set name="srcService"       display-name-key="SRC Service"
-                    of-type="Lookup.Simple"        usage="bound" required="false" />
-      <property-set name="fiscalYear"       display-name-key="Fiscal Year"
                     of-type="Lookup.Simple"        usage="bound" required="false" />
     <property-set name="quantity"           display-name-key="Effort" 
                     of-type="FP"                   usage="bound" required="false" />

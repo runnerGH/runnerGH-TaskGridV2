@@ -251,7 +251,7 @@ private async saveToDataverse(
   if (fields.taskName        !== undefined) payload["msdyn_subject"]        = fields.taskName;
   if (fields.unitRate        !== undefined) payload["pmo_unitrate"]         = fields.unitRate;
   if (fields.fixedCost       !== undefined) payload["pmo_fixedcost"]        = fields.fixedCost;
-  if (fields.actualCost      !== undefined) payload["cred8_actualcost"]     = fields.actualCost;
+  if (fields.actualCost      !== undefined) payload["pmo_actualcost"]     = fields.actualCost;
   if (fields.actualFixedCost !== undefined) payload["pmo_actualfixedcost"]  = fields.actualFixedCost;
   if (fields.plannedCost     !== undefined) payload["pmo_plannedcost"]      = fields.plannedCost;
   if (fields.totalPlannedCost !== undefined) payload["pmo_totalplannedcost"] = fields.totalPlannedCost;
@@ -263,7 +263,7 @@ private async saveToDataverse(
   if (fields.fundingSource !== undefined) payload["pmo_fundingsource"] = fields.fundingSource;
 
     if (fields.costCategory !== undefined) {
-      payload["cred8_costcategory"] = fields.costCategory;
+      payload["pmo_costcategory"] = fields.costCategory;
     }
     if (fields.srcServiceId !== undefined && fields.srcServiceId !== null) {
       payload["pmo_SRCService@odata.bind"] =
@@ -271,7 +271,7 @@ private async saveToDataverse(
     }
     if (fields.fiscalYearId !== undefined && fields.fiscalYearId !== null) {
       payload["pmo_fiscalyear@odata.bind"] =
-        `/pmo_fiscalyear1s(${fields.fiscalYearId})`;
+        `/pmo_fiscalyears(${fields.fiscalYearId})`;
     }
 
     const response = await fetch(

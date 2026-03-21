@@ -384,8 +384,12 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
     : { label: "Under Budget",  color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false };
 
   const COST_CAT_MAP: Record<number, string> = {
-    847020000: "Staff", 847020001: "Supplies", 847020002: "Equipment",
-    847020003: "Contractual", 847020004: "Travel", 847020005: "Indirect",
+    847020000: "Staff and Other Personnel Costs",
+    847020001: "Supplies, Commodities, and Materials",
+    847020002: "Equipment, Vehicles, and Furniture",
+    847020003: "Contractual Services",
+    847020004: "Travel",
+    847020005: "Indirect Costs",
   };
   const FUNDING_MAP: Record<number, string> = {
     0: "Regular Budget", 1: "Support Account", 2: "xB", 3: "10RCR", 4: "20PCR",
@@ -744,14 +748,14 @@ function HBarChart({ title, bars, total }: {
             <div style={{ display: "flex", flex: 1, gap: 14 }}>
 
               {/* Total Budget */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Budget</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: "#111827", marginTop: 8 }}>{fmtCurrency(totalPlanned)}</div>
-                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{weightedPct.toFixed(1)}% complete</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Budget</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: "#111827", marginTop: 6 }}>{fmtCurrency(totalPlanned)}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{weightedPct.toFixed(1)}% complete</div>
                 </div>
-                <div style={{ background: "white", border: `1px solid ${eacColor}`, borderRadius: 10, padding: "14px 20px", flex: 1 }}>
-                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                <div style={{ background: "white", border: `1px solid ${eacColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
                     EAC — Forecast Final Cost
                     <InfoPopover
                       title="EAC — Estimate at Completion"
@@ -760,8 +764,8 @@ function HBarChart({ title, bars, total }: {
                       thresholds="🟢 ≤ Budget = On track · 🟡 ≤ +10% = Slight overrun · 🔴 > +10% = Overrun"
                     />
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: eacColor, marginTop: 6 }}>{eac !== null ? fmtCurrency(eac) : "—"}</div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: eacColor, marginTop: 6 }}>{eac !== null ? fmtCurrency(eac) : "—"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                     {eac !== null ? `${eac <= totalPlanned ? "Under" : "Over"} budget by ${fmtCurrency(Math.abs(eac - totalPlanned))}` : "No spend yet"}
                   </div>
                 </div>
@@ -769,23 +773,23 @@ function HBarChart({ title, bars, total }: {
 
               {/* Spent */}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Spent</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: "#0f766e", marginTop: 8 }}>{fmtCurrency(totalActual)}</div>
-                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>EV: {fmtCurrency(totalEV)}</div>
+                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Spent</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: "#0f766e", marginTop: 6 }}>{fmtCurrency(totalActual)}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>EV: {fmtCurrency(totalEV)}</div>
                 </div>
-                <div style={{ background: "white", border: `1px solid ${cpiColor}`, borderRadius: 10, padding: "14px 20px", flex: 1 }}>
-                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                <div style={{ background: "white", border: `1px solid ${cpiColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
                     CPI — Cost Performance
                     <InfoPopover
                       title="CPI — Cost Performance Index"
-                      explanation="For every $1 spent, how much work was done? 1.0 = perfect. Below 1.0 = overspending."
+                      explanation="For every $1 spent, how much work value was delivered? Unlike Consumption Rate (which compares spending pace to progress), CPI uses Earned Value — the monetary worth of work completed. CPI < 1.0 means you are paying more than the work is worth."
                       formula="CPI = Earned Value (EV) ÷ Actual Cost"
                       thresholds="🟢 ≥ 0.95 = On budget · 🟡 0.80–0.95 = At risk · 🔴 < 0.80 = Overrun"
                     />
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: cpiColor, marginTop: 6 }}>{cpi !== null ? cpi.toFixed(2) : "—"}</div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: cpiColor, marginTop: 6 }}>{cpi !== null ? cpi.toFixed(2) : "—"}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                     {cpi === null ? "No spend yet" : cpi >= 0.95 ? "On budget" : cpi >= 0.80 ? "Slight overrun" : "Significant overrun"}
                     {cpi !== null ? ` · $1 spent = ${fmtCurrency(cpi)} value` : ""}
                   </div>
@@ -794,13 +798,13 @@ function HBarChart({ title, bars, total }: {
 
               {/* Available */}
               <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                <div style={{ background: "white", border: `2px solid ${gaugeColor}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-                  <div style={{ fontSize: 12, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Available</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: gaugeColor, marginTop: 8 }}>{fmtCurrency(totalRemaining)}</div>
-                  <div style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>{availablePct.toFixed(1)}% of budget</div>
+                <div style={{ background: "white", border: `2px solid ${gaugeColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Available</div>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: gaugeColor, marginTop: 6 }}>{fmtCurrency(totalRemaining)}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{availablePct.toFixed(1)}% of budget</div>
                 </div>
-                <div style={{ background: "white", border: `1px solid ${etcColor}`, borderRadius: 10, padding: "14px 20px", flex: 1 }}>
-                  <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                <div style={{ background: "white", border: `1px solid ${etcColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
                     ETC — Cost to Finish
                     <InfoPopover
                       title="ETC — Estimate to Complete"
@@ -809,8 +813,8 @@ function HBarChart({ title, bars, total }: {
                       thresholds="🟢 ETC ≤ Available = Covered · 🔴 ETC > Available = Shortfall"
                     />
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: etcColor, marginTop: 6 }}>{fmtCurrency(etc)}</div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                  <div style={{ fontSize: 26, fontWeight: 800, color: etcColor, marginTop: 6 }}>{fmtCurrency(etc)}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                     {etc <= totalRemaining ? "Covered by available budget" : `Shortfall of ${fmtCurrency(etc - totalRemaining)}`}
                   </div>
                 </div>
@@ -913,7 +917,7 @@ const CSS = `
   .tg-input-wrap { cursor: cell !important; }
   .tg-input-wrap:focus-within { cursor: text !important; }
   .tg-toolbar {
-    background: #fff; border-bottom: 1px solid #e5e7eb;
+    background: #fff; border-bottom: 2px solid #d0d0d0;
     padding: 0 12px; display: flex; align-items: center;
     gap: 2px; flex-shrink: 0; height: 54px;
     position: sticky; top: 0; z-index: 10;
@@ -971,15 +975,15 @@ const CSS = `
     width: 16px; height: 16px; border-radius: 2px; flex-shrink: 0; transition: all 0.1s;
   }
   .tg-expand-btn:hover { background: #edebe9; color: #323130; }
-  .tg-cell-text { font-size: 13px; border-radius: 3px; padding: 1px 3px; }
+  .tg-cell-text { font-size: 14px; border-radius: 3px; padding: 1px 3px; }
   .tg-cell-right { text-align: right; display: block; width: 100%; }
   .tg-dash { color: #d1d5db; display: block; text-align: center; }
   .tg-progress-wrap { display: flex; align-items: center; gap: 8px; }
   .tg-progress-track {
-    flex: 1; height: 8px; background: #edebe9; border-radius: 2px; overflow: hidden;
+    flex: 1; height: 11px; background: #edebe9; border-radius: 2px; overflow: hidden;
   }
-  .tg-progress-fill  { height: 100%; border-radius: 2px; transition: width 0.3s; }
-  .tg-progress-label { font-size: 12px; color: #605e5c; width: 38px; text-align: right; flex-shrink: 0; }
+  .tg-progress-fill  { height: 100%; border-radius: 0px; transition: width 0.3s; }
+  .tg-progress-label { font-size: 14px; color: #605e5c; width: 42px; text-align: right; flex-shrink: 0; }
 .tg-select {
     font-size: 13px; border: 1px solid transparent;
     padding: 4px 4px; background: transparent; width: 100%;
@@ -1240,7 +1244,7 @@ function ColumnsIcon() {
 
 function ProgressCell({ value }: { value: number }) {
   const pct   = Math.min(100, Math.max(0, Number(value) || 0));
-  const color = pct === 100 ? "#22c55e" : pct > 50 ? "#4f46e5" : "#f59e0b";
+  const color = "#496945";
   return (
     <div className="tg-progress-wrap">
       <div className="tg-progress-track">
@@ -2829,7 +2833,7 @@ function toggleColumn(id: string) {
 
                 const tdBase: React.CSSProperties = {
                 padding: "0 10px",
-                borderBottom: "1px solid #f3f4f6",
+                borderBottom: "1px solid #d8d8d8",
                 verticalAlign: "middle",
                 height: 38,   // ← was 36
                 fontWeight: isSummary ? 600 : 400,
