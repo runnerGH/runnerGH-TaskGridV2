@@ -269,10 +269,6 @@ private async saveToDataverse(
       payload["pmo_SRCService@odata.bind"] =
         `/pmo_serviceratecards(${fields.srcServiceId})`;
     }
-    if (fields.fiscalYearId !== undefined && fields.fiscalYearId !== null) {
-      payload["pmo_fiscalyear@odata.bind"] =
-        `/pmo_fiscalyears(${fields.fiscalYearId})`;
-    }
 
     const response = await fetch(
       `/api/data/v9.2/${entityPluralName}(${recordId})`,

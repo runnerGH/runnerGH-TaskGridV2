@@ -20,12 +20,12 @@ interface Props {
 }
 
 const COST_CATEGORIES = [
-  { value: 847020000, label: "Staff and Other Personnel Costs" },
-  { value: 847020001, label: "Supplies, Commodities, and Materials" },
-  { value: 847020002, label: "Equipment, Vehicles, and Furniture" },
-  { value: 847020003, label: "Contractual Services" },
-  { value: 847020004, label: "Travel" },
-  { value: 847020005, label: "Indirect Costs" },
+  { value: 686490000, label: "Staff and Other Personnel Costs" },
+  { value: 686490001, label: "Supplies, Commodities, and Materials" },
+  { value: 686490002, label: "Equipment, Vehicles, and Furniture" },
+  { value: 686490003, label: "Contractual Services" },
+  { value: 686490004, label: "Travel" },
+  { value: 686490005, label: "Indirect Costs" },
 ];
 
 const FUNDING_SOURCES = [
@@ -188,7 +188,7 @@ function BulkServiceSearch({ items, onSelect }: {
             onMouseEnter={e => (e.currentTarget.style.background = "#f3f2f1")}
             onMouseLeave={e => (e.currentTarget.style.background = "white")}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontWeight: 500, fontSize: 12 }}>{s.serviceId}</span>
+              <span style={{ fontWeight: 500, fontSize: 14 }}>{s.serviceId}</span>
               <span style={{ fontSize: 11, color: "#0078d4" }}>{s.entityName}</span>
             </div>
             <div style={{ fontSize: 11, color: "#6b7280" }}>{s.name}</div>
@@ -1467,7 +1467,7 @@ function ServiceCombobox({ value, items, onChange }: {
           onChange={e => setQuery(e.target.value)}
           style={{
             width: "100%", border: "1px solid #d1d5db", borderRadius: 2,
-            padding: "4px 8px", fontSize: 13, outline: "none",
+            padding: "6px 8px", fontSize: 14, outline: "none",
             boxSizing: "border-box",
           }}
           onClick={e => e.stopPropagation()}
@@ -1495,7 +1495,7 @@ function ServiceCombobox({ value, items, onChange }: {
               key={s.id}
               onClick={() => { onChange(s.id, s); setOpen(false); setQuery(""); }}
               style={{
-                padding: "6px 12px", fontSize: 13, cursor: "pointer",
+                padding: "8px 12px", fontSize: 14, cursor: "pointer",
                 background: s.id === value ? "#eff6ff" : "white",
                 color: s.id === value ? "#0078d4" : "#1f2937",
                 borderLeft: s.id === value ? "3px solid #0078d4" : "3px solid transparent",
@@ -1510,13 +1510,13 @@ function ServiceCombobox({ value, items, onChange }: {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 500, fontSize: 12 }}>{s.serviceId}</span>
-                <span style={{ fontSize: 11, color: "#0078d4" }}>
+                <span style={{ fontSize: 13, color: "#0078d4" }}>
                   {[s.fiscalYearName, s.entityName].filter(Boolean).join(" · ")}
                 </span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 1 }}>
-                <span style={{ fontSize: 11, color: "#6b7280" }}>{s.name}</span>
-                <span style={{ fontSize: 11, color: "#374151", fontWeight: 500 }}>
+                <span style={{ fontSize: 13, color: "#6b7280" }}>{s.name}</span>
+                <span style={{ fontSize: 13, color: "#374151", fontWeight: 500 }}>
                   {fmtCurrency(s.price)}/{s.unit}
                 </span>
               </div>
@@ -1538,9 +1538,9 @@ function ServiceCombobox({ value, items, onChange }: {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           border: open ? "2px solid #107c10" : hovered ? "1px solid #107c10" : "1px solid transparent",
           borderRadius: 0, padding: "2px 6px",
-          background: open || hovered ? "white" : "transparent", cursor: "cell", fontSize: 13,
+          background: open || hovered ? "white" : "transparent", cursor: "cell", fontSize: 14,
           color: selected ? "#1f2937" : "#9ca3af",
-          minHeight: 0, height: "100%",
+          minHeight: 38, height: 38,
           userSelect: "none", width: "100%", maxWidth: 260,
           boxSizing: "border-box",
         }}
@@ -1558,6 +1558,301 @@ function ServiceCombobox({ value, items, onChange }: {
       {dropdown && typeof document !== "undefined"
         ? ReactDOM.createPortal(dropdown, document.body)
         : null}
+    </React.Fragment>
+  );
+}
+
+function TaskDetailPanel({
+  task,
+  resources,
+  srcItems,
+  onSave,
+  onClose,
+}: {
+  task: TaskNode;
+  resources: ResourceItem[];
+  srcItems: SrcItem[];
+  onSave: (recordId: string, updates: Partial<TaskNode>) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [local, setLocal] = React.useState<Partial<TaskNode>>({});
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+
+  // Merge task with local edits
+  const current = { ...task, ...local };
+
+  function updateLocal(field: keyof TaskNode, value: unknown) {
+    setLocal(prev => ({ ...prev, [field]: value }));
+  }
+
+  function recalcLocal(overrides: Partial<TaskNode>): Partial<TaskNode> {
+    const qty         = overrides.quantity        ?? current.quantity        ?? 0;
+    const rate        = overrides.unitRate        ?? current.unitRate        ?? 0;
+    const fixed       = overrides.fixedCost       ?? current.fixedCost       ?? 0;
+    const completed   = overrides.effortCompleted ?? current.effortCompleted ?? 0;
+    const actualFixed = overrides.actualFixedCost ?? current.actualFixedCost ?? 0;
+    const pct         = overrides.pctDone         ?? current.pctDone         ?? 0;
+    const planned     = qty * rate;
+    const actual      = completed * rate;
+    const total       = planned + fixed;
+    const totalActual = actual + actualFixed;
+    const remaining   = total - totalActual;
+    const ev          = (pct / 100) * total;
+    return {
+      ...overrides,
+      plannedCost:      planned,
+      actualCost:       actual,
+      totalPlannedCost: total,
+      totalActualCost:  totalActual,
+      remainingCost:    remaining,
+      earnedValue:      ev,
+    };
+  }
+
+  function onSrcChange(srcId: string) {
+    const src = srcItems.find(s => s.id === srcId);
+    if (!src) return;
+    setLocal(prev => ({
+      ...prev,
+      ...recalcLocal({
+        ...prev,
+        srcServiceId:   src.id,
+        srcServiceName: src.name,
+        unitRate:       src.price,
+        unit:           src.unit,
+        frequency:      src.frequency,
+      }),
+    }));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(task.recordId, { ...local });
+      setSaved(true);
+      setTimeout(() => onClose(), 1000);
+    } catch (e: any) {
+      setError(e.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Label + value layout helper
+  function Field({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{
+          fontSize: 14, fontWeight: 600, color: "#1f2937",
+          letterSpacing: "0em", marginBottom: 6,
+        }}>{label}</div>
+        {children}
+      </div>
+    );
+  }
+
+  function ReadOnlyField({ label, value }: { label: string; value: string }) {
+    return (
+      <Field label={label}>
+        <div style={{
+          fontSize: 15, color: "#111827", padding: "8px 10px",
+          border: "1px solid #8a8886", borderRadius: 4,
+        }}>{value || "—"}</div>
+      </Field>
+    );
+  }
+
+  function MetricCard({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+      <div style={{
+        background: "white", border: "1px solid #e5e7eb", borderRadius: 8,
+        padding: "10px 14px", flex: 1,
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280", letterSpacing: "0em" }}>{label}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: color ?? "#111827", marginTop: 4 }}>{value}</div>
+      </div>
+    );
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", border: "1px solid #8a8886", borderRadius: 4,
+    padding: "8px 10px", fontSize: 14, color: "#111827",
+    boxSizing: "border-box", outline: "none",
+    fontFamily: "Segoe UI, system-ui, sans-serif",
+  };
+
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle, border: "1px solid #8a8886", background: "white", cursor: "pointer", appearance: "auto" as any,
+  };
+
+  return (
+    <React.Fragment>
+      {/* Backdrop — dims and locks the grid */}
+      <div style={{
+        position: "absolute", inset: 0, background: "rgba(0,0,0,0.15)",
+        zIndex: 50,
+      }} />
+
+      {/* Panel */}
+      <div style={{
+        position: "absolute", top: 0, right: 0, bottom: 0,
+        width: 440, background: "white", zIndex: 51,
+        borderLeft: "1px solid #e5e7eb",
+        boxShadow: "-4px 0 20px rgba(0,0,0,0.12)",
+        display: "flex", flexDirection: "column",
+        animation: "slideIn 0.2s ease",
+      }}>
+
+        {/* Header */}
+        <div style={{
+          padding: "14px 16px", borderBottom: "2px solid #d0d0d0",
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+          flexShrink: 0, background: "white",
+        }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 400, color: "#6b7280", letterSpacing: "0.05em", marginBottom: 4 }}>Task Details</div>
+            <div style={{ fontSize: 23, fontWeight: 400, color: "#111827", lineHeight: 1.3 }}>{task.taskName}</div>
+          </div>
+          <button onClick={onClose} style={{
+            background: "none", border: "none", cursor: "pointer",
+            color: "#605e5c", fontSize: 18, lineHeight: 1, padding: "0 0 0 8px", flexShrink: 0,
+          }}>✕</button>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+
+          {/* Read-only info */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <ReadOnlyField label="Start"       value={formatDate(task.startDate)} />
+            <ReadOnlyField label="Finish"      value={formatDate(task.endDate)} />
+            <ReadOnlyField label="% Complete"  value={`${(task.pctDone ?? 0).toFixed(1)}%`} />
+            <ReadOnlyField label="Assigned to" value={resources.map(r => r.name).join(", ")} />
+          </div>
+
+          <div style={{ height: 1, background: "#f3f4f6", margin: "0 0 16px" }} />
+
+          {/* Editable fields */}
+          <Field label="Funding Source">
+            <select style={selectStyle}
+              value={current.fundingSource ?? ""}
+              onChange={e => updateLocal("fundingSource", e.target.value === "" ? null : Number(e.target.value))}>
+              <option value="">— select —</option>
+              {FUNDING_SOURCES.map(f => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Cost Category">
+            <select style={selectStyle}
+              value={current.costCategory ?? ""}
+              onChange={e => updateLocal("costCategory", e.target.value === "" ? null : Number(e.target.value))}>
+              <option value="">— select —</option>
+              {COST_CATEGORIES.map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Service">
+            <div style={{ width: "100%" }}>
+              <ServiceCombobox
+                value={current.srcServiceId ?? null}
+                items={srcItems}
+                onChange={(id) => onSrcChange(id)}
+              />
+            </div>
+          </Field>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <Field label="Effort (h)">
+              <input style={{ ...inputStyle, background: "#f9fafb", color: "#6b7280" }}
+                value={current.quantity ?? ""} readOnly />
+            </Field>
+            <Field label="Unit">
+              <input style={{ ...inputStyle, background: "#f9fafb", color: "#6b7280" }}
+                value={current.unit ?? ""} readOnly />
+            </Field>
+            <Field label="Unit Rate">
+              <input style={inputStyle} type="number" min={0} step="0.01"
+                value={current.unitRate ?? ""}
+                onChange={e => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setLocal(prev => ({ ...prev, ...recalcLocal({ ...prev, unitRate: v }) }));
+                }}
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Field label="Fixed Cost ($)">
+              <input style={inputStyle} type="number" min={0} step="0.01"
+                value={current.fixedCost ?? ""}
+                onChange={e => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setLocal(prev => ({ ...prev, ...recalcLocal({ ...prev, fixedCost: v }) }));
+                }}
+              />
+            </Field>
+            <Field label="Actual Fixed Cost ($)">
+              <input style={inputStyle} type="number" min={0} step="0.01"
+                value={current.actualFixedCost ?? ""}
+                onChange={e => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setLocal(prev => ({ ...prev, ...recalcLocal({ ...prev, actualFixedCost: v }) }));
+                }}
+              />
+            </Field>
+          </div>
+
+          <div style={{ height: 1, background: "#f3f4f6", margin: "4px 0 16px" }} />
+
+          {/* Computed metrics */}
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", letterSpacing: "0em", marginBottom: 10 }}>Computed</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <MetricCard label="Planned Cost"     value={fmtCurrency(current.totalPlannedCost ?? 0)} color="#4f46e5" />
+            <MetricCard label="Actual Cost"      value={fmtCurrency(current.totalActualCost  ?? 0)} color="#0f766e" />
+            <MetricCard label="Remaining"        value={fmtCurrency(current.remainingCost    ?? 0)} color={(current.remainingCost ?? 0) < 0 ? "#dc2626" : "#374151"} />
+            <MetricCard label="Earned Value"     value={fmtCurrency(current.earnedValue      ?? 0)} color="#374151" />
+          </div>
+
+          {error && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "10px 12px", fontSize: 13, color: "#dc2626", marginTop: 12 }}>
+              ⚠ {error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: "12px 16px", borderTop: "1px solid #e5e7eb",
+          display: "flex", gap: 8, flexShrink: 0, background: "white",
+        }}>
+          {saved ? (
+            <div style={{ flex: 1, textAlign: "center", color: "#16a34a", fontWeight: 600, fontSize: 14 }}>
+              ✓ Saved successfully
+            </div>
+          ) : (
+            <React.Fragment>
+              <button onClick={onClose} style={{
+                flex: 1, padding: "8px 0", border: "1px solid #e5e7eb",
+                borderRadius: 4, background: "white", cursor: "pointer",
+                fontSize: 14, color: "#374151", fontWeight: 500,
+              }}>Cancel</button>
+              <button onClick={handleSave} disabled={saving} style={{
+                flex: 2, padding: "8px 0", border: "none",
+                borderRadius: 4, background: saving ? "#c7e0f4" : "#0078d4",
+                cursor: saving ? "not-allowed" : "pointer",
+                fontSize: 14, color: "white", fontWeight: 600,
+              }}>{saving ? "Saving…" : "Save"}</button>
+            </React.Fragment>
+          )}
+        </div>
+      </div>
     </React.Fragment>
   );
 }
@@ -1614,6 +1909,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     } catch {}
     return {};
   });
+  const [detailTask, setDetailTask] = React.useState<TaskNode | null>(null);
 
   // Persist sizing changes
   React.useEffect(() => {
@@ -2116,6 +2412,7 @@ return (
     enableResizing: true,
     cell: function TaskNameCell({ row, getValue }) {
       const isSummary = row.original.isSummary;
+      const isRowHovered = hoveredRow === row.id;
       return (
         <div style={{
           paddingLeft: row.depth * 20, display: "flex", alignItems: "center",
@@ -2133,6 +2430,21 @@ return (
             textDecoration: row.original.pctDone >= 100 ? "line-through" : "none",
             color: row.original.pctDone >= 100 ? "#9ca3af" : "inherit",
           }}>{String(getValue() ?? "")}</span>
+          {!isSummary && (
+            <button
+              onClick={e => { e.stopPropagation(); setDetailTask(row.original); }}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "#107c10", fontSize: 14, lineHeight: 1,
+                padding: "0 0 0 6px", display: "inline-flex", alignItems: "center",
+                marginLeft: "auto",
+                opacity: isRowHovered ? 1 : 0.75,
+                transition: "opacity 0.15s",
+                pointerEvents: "auto",
+              }}
+              title="Open task details"
+            >ⓘ</button>
+          )}
         </div>
       );
     },
@@ -2249,12 +2561,12 @@ col.accessor("effortCompleted", {
   col.accessor("unitRate", {
     header: "Unit rate", size: 95,
     cell: function RateCell({ row }) {
-      // Summary: show dash
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
       return (
-        <span className="tg-cell-right">
-          {fmtCurrency(Number(row.original.unitRate ?? 0))}
-        </span>
+        <CurrencyInput
+          value={row.original.unitRate ?? 0}
+          onChange={v => applyUpdates(row.original.recordId, recalc(row.original, { unitRate: v }))}
+        />
       );
     },
   }),
@@ -2614,6 +2926,19 @@ function toggleColumn(id: string) {
 </div>
 
       {loadError && <div className="tg-error">⚠ {loadError}</div>}
+
+      {detailTask && (
+        <TaskDetailPanel
+          task={detailTask}
+          resources={taskResources[detailTask.recordId] ?? []}
+          srcItems={resolvedSrcItems}
+          onSave={async (recordId, updates) => {
+            await onSave({ [recordId]: updates });
+            onRefresh();
+          }}
+          onClose={() => setDetailTask(null)}
+        />
+      )}
 
       {summaryOpen && (
         <SummaryPanel data={data} onClose={() => setSummaryOpen(false)} latestApprovedBudget={latestApprovedBudget} />
