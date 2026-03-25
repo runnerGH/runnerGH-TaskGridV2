@@ -26,6 +26,7 @@ interface FlatTask {
   fixedCost:        number;
   totalPlannedCost: number;
   effortCompleted:  number;
+  displaySequence:  number;
   actualCost:       number;
   actualFixedCost:  number;
   totalActualCost:  number;
@@ -189,11 +190,15 @@ const flat: FlatTask[] = dataset.sortedRecordIds.map((id: string) => {
     remainingCost,
     earnedValue,
     fundingSource,
+    displaySequence: Number(rec.getValue("displaySequence") ?? 0),
   };
 });
 
-    const tree       = buildTreeByGuid(flat);
-    const rolledUp   = rollupCosts(tree);
+    // Sort by display sequence before building tree
+flat.sort((a, b) => (a.displaySequence ?? 0) - (b.displaySequence ?? 0));
+
+const tree     = buildTreeByGuid(flat);
+const rolledUp = rollupCosts(tree);
 
     // Extract project ID from first task record
     const firstId = context.parameters.TaskDataSet.sortedRecordIds[0];

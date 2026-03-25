@@ -78,6 +78,11 @@ interface EntityItem {
   name: string;
 }
 
+interface FiscalYearItem {
+  id:   string;
+  name: string;
+}
+
 interface ResourceItem {
   id:   string;
   name: string;
@@ -384,40 +389,52 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
     : { label: "Under Budget",  color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false };
 
   const COST_CAT_MAP: Record<number, string> = {
-    847020000: "Staff and Other Personnel Costs",
-    847020001: "Supplies, Commodities, and Materials",
-    847020002: "Equipment, Vehicles, and Furniture",
-    847020003: "Contractual Services",
-    847020004: "Travel",
-    847020005: "Indirect Costs",
+    686490000: "Staff and Other Personnel Costs",
+    686490001: "Supplies, Commodities, and Materials",
+    686490002: "Equipment, Vehicles, and Furniture",
+    686490003: "Contractual Services",
+    686490004: "Travel",
+    686490005: "Indirect Costs",
   };
   const FUNDING_MAP: Record<number, string> = {
     0: "Regular Budget", 1: "Support Account", 2: "xB", 3: "10RCR", 4: "20PCR",
   };
 
-  const byCategory: Record<string, number> = {};
+  const byCategoryPlanned: Record<string, number> = {};
+  const byCategoryActual:  Record<string, number> = {};
   leaves.forEach(n => {
     const label = n.costCategory != null ? (COST_CAT_MAP[n.costCategory] ?? "Other") : "Unassigned";
-    byCategory[label] = (byCategory[label] ?? 0) + (n.totalActualCost ?? 0);
+    byCategoryPlanned[label] = (byCategoryPlanned[label] ?? 0) + (n.totalPlannedCost ?? 0);
+    byCategoryActual[label]  = (byCategoryActual[label]  ?? 0) + (n.totalActualCost  ?? 0);
   });
 
-  const byFunding: Record<string, number> = {};
+  const byFundingPlanned: Record<string, number> = {};
+  const byFundingActual:  Record<string, number> = {};
   leaves.forEach(n => {
     const label = n.fundingSource != null ? (FUNDING_MAP[n.fundingSource] ?? "Other") : "Unassigned";
-    byFunding[label] = (byFunding[label] ?? 0) + (n.totalPlannedCost ?? 0);
+    byFundingPlanned[label] = (byFundingPlanned[label] ?? 0) + (n.totalPlannedCost ?? 0);
+    byFundingActual[label]  = (byFundingActual[label]  ?? 0) + (n.totalActualCost  ?? 0);
   });
 
-  const DONUT_COLORS = ["#4f46e5","#0f766e","#d97706","#dc2626","#7c3aed","#0284c7","#16a34a","#9ca3af"];
-  const catSlices  = Object.entries(byCategory).map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
-  const fundSlices = Object.entries(byFunding).map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
+  const catRows  = Object.keys({ ...byCategoryPlanned, ...byCategoryActual }).map(label => ({
+    label,
+    planned: byCategoryPlanned[label] ?? 0,
+    actual:  byCategoryActual[label]  ?? 0,
+  }));
+
+  const fundRows = Object.keys({ ...byFundingPlanned, ...byFundingActual }).map(label => ({
+    label,
+    planned: byFundingPlanned[label] ?? 0,
+    actual:  byFundingActual[label]  ?? 0,
+  }));
 
   const COST_CATS_FULL = [
-    { value: 847020000, label: "Staff and Other Personnel Costs" },
-    { value: 847020001, label: "Supplies, Commodities, and Materials" },
-    { value: 847020002, label: "Equipment, Vehicles, and Furniture" },
-    { value: 847020003, label: "Contractual Services" },
-    { value: 847020004, label: "Travel" },
-    { value: 847020005, label: "Indirect Costs" },
+    { value: 686490000, label: "Staff and Other Personnel Costs" },
+    { value: 686490001, label: "Supplies, Commodities, and Materials" },
+    { value: 686490002, label: "Equipment, Vehicles, and Furniture" },
+    { value: 686490003, label: "Contractual Services" },
+    { value: 686490004, label: "Travel" },
+    { value: 686490005, label: "Indirect Costs" },
   ];
 
   type PidRow = { category: string; qty: number; unitCost: number; totalCost: number; funding: string; remarks: string };
@@ -441,46 +458,64 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
   });
   const pidTotal = pidRows.reduce((s, r) => s + r.totalCost, 0);
 
-function HBarChart({ title, bars, total }: {
-    title: string;
-    bars: { label: string; value: number; color: string }[];
-    total: number;
-  }) {
-    const maxVal = Math.max(...bars.map(b => b.value), 1);
-    return (
-      <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "18px 20px", flex: 1 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 16 }}>{title}</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {bars.filter(b => b.value > 0).map((b, i) => {
-            const pct = total > 0 ? (b.value / total) * 100 : 0;
-            const barPct = (b.value / maxVal) * 100;
-            return (
-              <div key={i}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{b.label}</span>
-                  <div style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{fmtCurrency(b.value)}</span>
-                    <span style={{ fontSize: 12, color: "#6b7280", minWidth: 36, textAlign: "right" }}>{pct.toFixed(1)}%</span>
-                  </div>
-                </div>
-                <div style={{ height: 20, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{
-                    height: "100%", width: `${barPct}%`,
-                    background: b.color, borderRadius: 4,
-                    transition: "width 0.4s ease",
-                  }}/>
-                </div>
-              </div>
-            );
-          })}
+function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
+  title: string;
+  rows: { label: string; planned: number; actual: number }[];
+  totalPlanned: number;
+  totalActual: number;
+}) {
+  const maxVal = Math.max(...rows.map(b => Math.max(b.planned, b.actual)), 1);
+  return (
+    <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "18px 20px", flex: 1 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 16 }}>{title}</div>
+      <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 2, background: "#4763a5" }}/>
+          <span style={{ fontSize: 12, color: "#374151" }}>Planned</span>
         </div>
-        <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>Total</span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "#111827" }}>{fmtCurrency(total)}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 2, background: "#c07a2f" }}/>
+          <span style={{ fontSize: 12, color: "#374151" }}>Actual</span>
         </div>
       </div>
-    );
-  }
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {rows.filter(b => b.planned > 0 || b.actual > 0).map((b, i) => (
+          <div key={i}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", marginBottom: 5 }}>{b.label}</div>
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, color: "#374151", width: 48, flexShrink: 0, fontWeight: 500 }}>Planned</span>
+                <div style={{ flex: 1, height: 16, background: "#f3f4f6", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(b.planned / maxVal) * 100}%`, background: "#4763a5", borderRadius: 3, transition: "width 0.4s ease" }}/>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#4763a5", width: 78, textAlign: "right", flexShrink: 0 }}>{fmtCurrency(b.planned)}</span>
+              </div>
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 13, color: "#374151", width: 48, flexShrink: 0, fontWeight: 500 }}>Actual</span>
+                <div style={{ flex: 1, height: 16, background: "#f3f4f6", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(b.actual / maxVal) * 100}%`, background: "#c07a2f", borderRadius: 3, transition: "width 0.4s ease" }}/>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#c07a2f", width: 78, textAlign: "right", flexShrink: 0 }}>{fmtCurrency(b.actual)}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #f3f4f6" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>Total Planned</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#4763a5" }}>{fmtCurrency(totalPlanned)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>Total Actual</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: "#c07a2f" }}>{fmtCurrency(totalActual)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
   // Power BI-style donut with callout lines
   function DonutWithLabels({ slices, title }: {
@@ -827,15 +862,17 @@ function HBarChart({ title, bars, total }: {
 
       {/* ── Row 2: Horizontal Bar Charts ────────────────────────── */}
       <div style={{ display: "flex", gap: 14, padding: "0 18px 16px" }}>
-        <HBarChart
-          title="Actual Spend by Category"
-          bars={catSlices.map(s => ({ label: s.label, value: s.value, color: s.color }))}
-          total={totalActual}
+        <GroupedHBarChart
+          title="Planned vs Actual by Category"
+          rows={catRows}
+          totalPlanned={totalPlanned}
+          totalActual={totalActual}
         />
-        <HBarChart
-          title="Planned Budget by Funding Source"
-          bars={fundSlices.map(s => ({ label: s.label, value: s.value, color: s.color }))}
-          total={totalPlanned}
+        <GroupedHBarChart
+          title="Planned vs Actual by Funding Source"
+          rows={fundRows}
+          totalPlanned={totalPlanned}
+          totalActual={totalActual}
         />
       </div>
 
@@ -1091,7 +1128,7 @@ const CSS = `
   .tg-table th.th-nodrag { cursor: default; }
   .tg-filter-panel {
     position: absolute; top: 0; right: 0; bottom: 0;
-    width: 300px; background: white; z-index: 100;
+    width: 340px; background: white; z-index: 100;
     border-left: 1px solid #e5e7eb;
     box-shadow: -4px 0 16px rgba(0,0,0,0.10);
     display: flex; flex-direction: column;
@@ -1127,19 +1164,22 @@ const CSS = `
   .tg-filter-section-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 10px 16px; cursor: pointer; user-select: none;
-    font-size: 13px; font-weight: 600; color: #1f2937;
+    font-size: 14px; font-weight: 600; color: #1f2937;
   }
   .tg-filter-section-header:hover { background: #f9fafb; }
   .tg-filter-item {
     display: flex; align-items: center; gap: 8px;
     padding: 6px 16px 6px 24px; cursor: pointer;
-    font-size: 13px; color: #374151;
+    font-size: 14px; color: #374151; overflow: hidden;
+  }
+  .tg-filter-item span:first-of-type {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
   }
   .tg-filter-item:hover { background: #f3f2f1; }
   .tg-filter-item input[type="checkbox"] {
     width: 14px; height: 14px; cursor: pointer; accent-color: #107c10;
   }
-  .tg-filter-count { margin-left: auto; color: #9ca3af; font-size: 12px; }
+  .tg-filter-count { margin-left: auto; color: #374151; font-size: 14px; font-weight: 600; min-width: 28px; text-align: right; }
   .tg-filter-badge {
     background: #107c10; color: white; border-radius: 10px;
     padding: 1px 6px; font-size: 10px; font-weight: 700; margin-left: 4px;
@@ -1875,6 +1915,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const [hoveredRow, setHoveredRow] = React.useState<string | null>(null);
   const [srcItems, setSrcItems]     = React.useState<SrcItem[]>([]);
   const [entityItems, setEntityItems] = React.useState<EntityItem[]>([]);
+  const [fiscalYearItems, setFiscalYearItems] = React.useState<FiscalYearItem[]>([]);
   const [taskResources, setTaskResources] = React.useState<TaskResourceMap>({});
   const [loadError, setLoadError]   = React.useState<string | null>(null);
   
@@ -1981,6 +2022,18 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
         // Non-fatal — entity names just won't show
       });
 
+    // Load Fiscal Years
+    fetch("/api/data/v9.2/pmo_fiscalyears?$select=pmo_fiscalyearid,pmo_id&$filter=statecode eq 0&$orderby=pmo_id asc")
+      .then(r => r.ok ? r.json() : { value: [] })
+      .then(d => {
+        const items: FiscalYearItem[] = (d.value || []).map((r: any) => ({
+          id:   r.pmo_fiscalyearid,
+          name: r.pmo_id,
+        }));
+        setFiscalYearItems(items);
+      })
+      .catch(e => console.error("[TaskGrid] FY load error:", e));
+
     // Load SRC with FY and Entity GUIDs
     fetch("/api/data/v9.2/pmo_serviceratecards?$select=pmo_serviceratecardid,pmo_serviceid,pmo_servicename,pmo_price,pmo_unit,pmo_frequency,_pmo_fiscalyear_value,_pmo_entity_value&$filter=statecode eq 0&$orderby=pmo_serviceid asc&$top=500")
       .then(r => {
@@ -2012,10 +2065,10 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
   const resolvedSrcItems = React.useMemo(() => {
     return srcItems.map(s => ({
       ...s,
-      fiscalYearName: null, // FY resolved from SRC name display only
+      fiscalYearName: fiscalYearItems.find(f => f.id === s.fiscalYearId)?.name ?? null,
       entityName:     entityItems.find(e => e.id === s.entityId)?.name ?? null,
     }));
-  }, [srcItems, entityItems]);
+  }, [srcItems, entityItems, fiscalYearItems]);
 
 // Load resource assignments using known task IDs
   React.useEffect(() => {
@@ -2333,12 +2386,12 @@ function clearAllFilters() {
 col.display({
     id: "select",
     header: () => (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}>
       <input type="checkbox"
-        style={{ width: 12, height: 12, cursor: "pointer", accentColor: "#107c10" }}
-        checked={selectedRows.length > 0 && getVisibleLeafIds().every(id => selectedRows.includes(id))}
+        style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#107c10", display: "block", margin: "0" }}
+        checked={selectedRows.length > 0 && flattenLeaves(data).every(n => selectedRows.includes(n.recordId))}
         onChange={e => {
-          const ids = getVisibleLeafIds();
+          const ids = flattenLeaves(data).map(n => n.recordId);
           setSelectedRows(e.target.checked ? ids : []);
         }}
       />
@@ -2359,8 +2412,8 @@ return (
                 : [...new Set([...selectedRows, ...childIds])]);
             }}
             style={{
-              width: 9, height: 9,
-              border: allSelected ? "2px solid #107c10" : someSelected ? "2px solid #107c10" : "2px solid #d1d5db",
+              width: 10, height: 10,
+              border: allSelected ? "2px solid #107c10" : someSelected ? "2px solid #107c10" : "2px solid #6b7280",
               borderRadius: 2,
               background: allSelected ? "#107c10" : someSelected ? "white" : "white",
               cursor: "pointer",
@@ -2387,8 +2440,8 @@ return (
         <div
           onClick={e => { e.stopPropagation(); handleRowSelect(row, e as any); }}
           style={{
-            width: 9, height: 9,
-            border: isSelected ? "2px solid #107c10" : "2px solid #d1d5db",
+            width: 10, height: 10,
+            border: isSelected ? "2px solid #107c10" : "2px solid #6b7280",
             borderRadius: 2,
             background: isSelected ? "#107c10" : "white",
             cursor: "pointer",
@@ -2428,7 +2481,7 @@ return (
           )}
           <span className="tg-cell-text" style={{
             textDecoration: row.original.pctDone >= 100 ? "line-through" : "none",
-            color: row.original.pctDone >= 100 ? "#9ca3af" : "inherit",
+            color: row.original.pctDone >= 100 ? "#605e5c" : "inherit",
           }}>{String(getValue() ?? "")}</span>
           {!isSummary && (
             <button
