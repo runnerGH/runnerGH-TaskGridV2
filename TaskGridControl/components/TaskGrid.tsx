@@ -41,24 +41,41 @@ const ALL_COLUMNS = [
   { id: "endDate",          label: "Finish",             group: "schedule" },
   { id: "pctDone",          label: "% Complete",         group: "schedule" },
   { id: "assignedTo",       label: "Assigned to",        group: "schedule" },
-  { id: "fundingSource",    label: "Funding source",     group: "cost" },
-  { id: "costCategory",     label: "Cost category",      group: "cost" },
-  { id: "srcServiceName",   label: "Service",            group: "cost" },
   { id: "quantity",         label: "Effort (h)",         group: "cost" },
   { id: "effortCompleted",  label: "Completed (h)",      group: "cost" },
-  { id: "unit",             label: "Unit",               group: "cost" },
   { id: "unitRate",         label: "Unit rate",          group: "cost" },
+  { id: "totalPlannedCost", label: "Total planned",      group: "cost" },
+  { id: "srcServiceName",   label: "Service",            group: "cost" },
+  { id: "unit",             label: "Unit",               group: "cost" },
   { id: "plannedCost",      label: "Planned cost",       group: "cost" },
   { id: "fixedCost",        label: "Fixed cost",         group: "cost" },
-  { id: "totalPlannedCost", label: "Total planned",      group: "cost" },
   { id: "actualCost",       label: "Actual effort cost", group: "cost" },
   { id: "actualFixedCost",  label: "Actual fixed cost",  group: "cost" },
   { id: "totalActualCost",  label: "Total actual cost",  group: "cost" },
   { id: "remainingCost",    label: "Remaining",          group: "cost" },
   { id: "earnedValue",      label: "Earned value",       group: "cost" },
+  { id: "fundingSource",    label: "Funding source",     group: "cost" },
+  { id: "costCategory",     label: "Cost category",      group: "cost" },
 ] as const;
 
-const DEFAULT_VISIBLE = new Set(ALL_COLUMNS.map(c => c.id));
+const DEFAULT_VISIBLE = new Set([
+  "startDate", "endDate", "pctDone", "assignedTo",
+  "quantity", "effortCompleted", "unitRate", "totalPlannedCost",
+  "fundingSource", "costCategory",
+]);
+
+const DEFAULT_ORDER = [
+  "select", "taskName",
+  // schedule
+  "startDate", "endDate", "pctDone", "assignedTo",
+  // cost
+  "quantity", "effortCompleted", "unitRate", "totalPlannedCost",
+  "srcServiceName", "unit",
+  "plannedCost", "fixedCost",
+  "actualCost", "actualFixedCost", "totalActualCost",
+  "remainingCost", "earnedValue",
+  "fundingSource", "costCategory",
+];
 
 interface SrcItem {
   id:             string;
@@ -111,7 +128,7 @@ function formatDate(raw: string): string {
   if (!raw) return "";
   const d = new Date(raw);
   if (isNaN(d.getTime())) return raw;
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function BulkDropdown({ label, children }: { label: string; children: React.ReactNode }) {
@@ -1572,6 +1589,7 @@ function ServiceCombobox({ value, items, onChange }: {
       <div
         ref={triggerRef}
         onClick={openDropdown}
+        onMouseDown={e => e.stopPropagation()}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -1698,7 +1716,7 @@ function TaskDetailPanel({
     return (
       <Field label={label}>
         <div style={{
-          fontSize: 15, color: "#111827", padding: "8px 10px",
+          fontSize: 14, color: "#111827", padding: "7px 10px",
           border: "1px solid #8a8886", borderRadius: 4,
         }}>{value || "—"}</div>
       </Field>
@@ -1712,7 +1730,7 @@ function TaskDetailPanel({
         padding: "10px 14px", flex: 1,
       }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280", letterSpacing: "0em" }}>{label}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: color ?? "#111827", marginTop: 4 }}>{value}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: color ?? "#111827", marginTop: 4 }}>{value}</div>
       </div>
     );
   }
@@ -1770,7 +1788,12 @@ function TaskDetailPanel({
             <ReadOnlyField label="Start"       value={formatDate(task.startDate)} />
             <ReadOnlyField label="Finish"      value={formatDate(task.endDate)} />
             <ReadOnlyField label="% Complete"  value={`${(task.pctDone ?? 0).toFixed(1)}%`} />
-            <ReadOnlyField label="Assigned to" value={resources.map(r => r.name).join(", ")} />
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 6 }}>Assigned to</div>
+              <div style={{ padding: "4px 0" }}>
+                <ResourceCell resources={resources} />
+              </div>
+            </div>
           </div>
 
           <div style={{ height: 1, background: "#f3f4f6", margin: "0 0 16px" }} />
@@ -1937,7 +1960,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
       const stored = localStorage.getItem(orderKey);
       if (stored) return JSON.parse(stored);
     } catch {}
-    return [];
+    return DEFAULT_ORDER;
   });
   const [dragColId,   setDragColId]   = React.useState<string | null>(null);
   const [dropColId,   setDropColId]   = React.useState<string | null>(null);
@@ -2385,18 +2408,31 @@ function clearAllFilters() {
 
 col.display({
     id: "select",
-    header: () => (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}>
-      <input type="checkbox"
-        style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#107c10", display: "block", margin: "0" }}
-        checked={selectedRows.length > 0 && flattenLeaves(data).every(n => selectedRows.includes(n.recordId))}
-        onChange={e => {
-          const ids = flattenLeaves(data).map(n => n.recordId);
-          setSelectedRows(e.target.checked ? ids : []);
-        }}
-      />
+    header: () => {
+  const allIds = flattenLeaves(data).map(n => n.recordId);
+  const isAllSelected = allIds.length > 0 && allIds.every(id => selectedRows.includes(id));
+  return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}
+      onClick={() => setSelectedRows(isAllSelected ? [] : allIds)}>
+      <div style={{
+        width: 10, height: 10,
+        border: isAllSelected ? "1.5px solid #107c10" : "1.5px solid #8a8886",
+        borderRadius: 2,
+        background: isAllSelected ? "#107c10" : "white",
+        cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        {isAllSelected && (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+            stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        )}
       </div>
-    ),
+    </div>
+  );
+},
     size: 32,
     cell: function SelectCell({ row }) {
       if (row.original.isSummary) {
@@ -2413,7 +2449,7 @@ return (
             }}
             style={{
               width: 10, height: 10,
-              border: allSelected ? "2px solid #107c10" : someSelected ? "2px solid #107c10" : "2px solid #6b7280",
+              border: allSelected ? "1.5px solid #107c10" : someSelected ? "1.5px solid #107c10" : "1.5px solid #8a8886",
               borderRadius: 2,
               background: allSelected ? "#107c10" : someSelected ? "white" : "white",
               cursor: "pointer",
@@ -2441,7 +2477,7 @@ return (
           onClick={e => { e.stopPropagation(); handleRowSelect(row, e as any); }}
           style={{
             width: 10, height: 10,
-            border: isSelected ? "2px solid #107c10" : "2px solid #6b7280",
+            border: isSelected ? "1.5px solid #107c10" : "1.5px solid #8a8886",
             borderRadius: 2,
             background: isSelected ? "#107c10" : "white",
             cursor: "pointer",
@@ -2800,7 +2836,7 @@ function toggleColumn(id: string) {
   }
 
   function showAllColumns() {
-    const all = new Set(DEFAULT_VISIBLE);
+    const all = new Set(ALL_COLUMNS.map(c => c.id));
     setVisibleCols(all);
     try { localStorage.setItem(storageKey, JSON.stringify([...all])); } catch {}
   }
@@ -2964,8 +3000,8 @@ function toggleColumn(id: string) {
             <div className="tg-col-footer">
                 <button onClick={showAllColumns}>Show all</button>
                 <button onClick={() => {
-                    setColumnOrder([]);
-                    try { localStorage.removeItem(orderKey); } catch {}
+                    setColumnOrder(DEFAULT_ORDER);
+                    try { localStorage.setItem(orderKey, JSON.stringify(DEFAULT_ORDER)); } catch {}
                 }}>Reset order</button>
                 <button onClick={() => {
                     setColumnSizing({});
@@ -3213,10 +3249,14 @@ function toggleColumn(id: string) {
                 padding: "0 10px",
                 borderBottom: "1px solid #d8d8d8",
                 verticalAlign: "middle",
-                height: 38,   // ← was 36
+                height: 38,
                 fontWeight: isSummary ? 600 : 400,
                 color: isSummary ? "#111827" : "#374151",
                 background: isHovered ? "#f3f2f1" : isSummary ? "#fafafa" : "#ffffff",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                maxWidth: 0,
                 };
 
               return (
