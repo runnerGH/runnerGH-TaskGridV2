@@ -938,6 +938,54 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
   );
 }
 
+function ColTooltip({ label, tip }: { label: string; tip: string }) {
+  const [pos, setPos] = React.useState<{ top: number; left: number } | null>(null);
+  const ref = React.useRef<HTMLSpanElement>(null);
+
+  function handleMouseEnter() {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 6, left: rect.left });
+    }
+  }
+
+  function handleMouseLeave() {
+    setPos(null);
+  }
+
+  return (
+    <React.Fragment>
+      <span ref={ref} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}
+        style={{ display: "inline-flex", alignItems: "center", cursor: "default" }}>
+        {label}
+      </span>
+      {pos && ReactDOM.createPortal(
+        <div style={{
+          position: "fixed",
+          top: pos.top,
+          left: pos.left,
+          background: "#ffffcc",
+          color: "#1f2937",
+          fontSize: 12,
+          fontWeight: 400,
+          lineHeight: 1.5,
+          padding: "4px 8px",
+          border: "1px solid #999",
+          borderRadius: 2,
+          width: 220,
+          whiteSpace: "normal",
+          pointerEvents: "none",
+          zIndex: 99999,
+          boxShadow: "1px 1px 3px rgba(0,0,0,0.2)",
+        }}>
+          {tip}
+        </div>,
+        document.body
+      )}
+    </React.Fragment>
+  );
+}
+
 function RefreshIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -1140,9 +1188,33 @@ const CSS = `
   }
   .tg-th-dragging   { opacity: 0.4; cursor: grabbing; }
   .tg-th-drop-left  { border-left: 2px solid #0078d4 !important; }
-  .tg-th-drop-right { border-right: 2px solid #0078d4 !important; }
+.tg-th-drop-right { border-right: 2px solid #0078d4 !important; }
   .tg-table th { cursor: grab; }
   .tg-table th.th-nodrag { cursor: default; }
+  .tg-col-tip { position: relative; display: inline-flex; align-items: center; }
+  .tg-col-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    background: #ffffcc;
+    color: #1f2937;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+    padding: 4px 6px;
+    border: 1px solid #999;
+    border-radius: 2px;
+    width: 200px;
+    white-space: normal;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 99999;
+    box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+  }
+  .tg-col-tip:hover::after { opacity: 1; }
   .tg-filter-panel {
     position: absolute; top: 0; right: 0; bottom: 0;
     width: 340px; background: white; z-index: 100;
@@ -1383,23 +1455,31 @@ function CurrencyInput({ value, onChange, disabled }: {
   value: number; onChange: (v: number) => void; disabled?: boolean;
 }) {
   const [local, setLocal] = React.useState(value === 0 ? "" : String(value));
+  const [focused, setFocused] = React.useState(false);
   React.useEffect(() => { setLocal(value === 0 ? "" : String(value)); }, [value]);
 
   function commit() {
     const n = parseFloat(local);
     onChange(isNaN(n) ? 0 : n);
+    setFocused(false);
   }
 
-return (
+  const displayValue = focused
+    ? local
+    : value === 0 ? "" : new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+
+  return (
     <div className="tg-input-wrap">
       <span className="tg-input-symbol">$</span>
       <input
         className="tg-input"
-        type="number" min={0} step="0.01"
+        type={focused ? "number" : "text"}
+        min={0} step="0.01"
         placeholder="0.00"
-        value={local}
+        value={displayValue}
         disabled={disabled}
         onChange={e => setLocal(e.target.value)}
+        onFocus={() => setFocused(true)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") commit(); }}
       />
@@ -2559,7 +2639,7 @@ return (
 
   col.display({
     id: "assignedTo",
-    header: "Assigned to",
+    header: () => <ColTooltip label="Assigned To" tip="Team members assigned to this task. Read-only — managed via the project scheduling engine, not editable in this grid." />,
     size: 180,
     cell: function AssignedCell({ row }) {
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
@@ -2570,7 +2650,8 @@ return (
 
   // ── Cost — input fields hidden on summary rows ────────────────────────────
   col.accessor("fundingSource", {
-    header: "Funding source", size: 160,
+    header: () => <ColTooltip label="Funding Source" tip="The budget line funding this task. Regular Budget = core UN budget · Support Account = peacekeeping support · xB = extrabudgetary · 10RCR = cost recovery · 20PCR = peacekeeping cost recovery." />,
+    size: 160,
     cell: function FundingCell({ row }) {
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
       return (
@@ -2587,7 +2668,8 @@ return (
     },
   }),
   col.accessor("costCategory", {
-    header: "Cost category", size: 160,
+    header: () => <ColTooltip label="Cost Category" tip="UN cost classification for this task. Staff = personnel costs · Supplies = consumables · Equipment = assets and vehicles · Contractual = external services · Travel = mission travel · Indirect = overhead costs." />,
+    size: 160,
     cell: function CatCell({ row }) {
       // Summary: show dash — no editing, no dropdown
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
@@ -2605,7 +2687,8 @@ return (
     },
   }),
 col.accessor("srcServiceName", {
-  header: "Service", size: 220,
+  header: () => <ColTooltip label="Service" tip="Links this task to a Service Rate Card entry. Selecting a service automatically fills the Unit Rate and Unit fields. Search by service code, name, fiscal year, or entity." />,
+  size: 220,
   cell: function SrcCell({ row }) {
     if (row.original.isSummary) return <span className="tg-dash">—</span>;
     return (
@@ -2618,7 +2701,8 @@ col.accessor("srcServiceName", {
   },
 }),
 col.accessor("quantity", {
-  header: "Effort (h)", size: 75,
+  header: () => <ColTooltip label="Effort (h)" tip="Total planned hours assigned to this task. Drives planned cost when multiplied by the unit rate. (Planned Cost = Effort × Unit Rate)" />,
+  size: 75,
   cell: function QtyCell({ row }) {
     if (row.original.isSummary) return <span className="tg-dash">—</span>;
     return (
@@ -2629,7 +2713,8 @@ col.accessor("quantity", {
   },
 }),
 col.accessor("effortCompleted", {
-    header: "Completed (h)", size: 90,
+    header: () => <ColTooltip label="Completed (h)" tip="Actual hours worked on this task so far. Used to calculate actual effort cost. (Actual Effort Cost = Completed (h) × Unit Rate)" />,
+    size: 90,
     cell: function CompletedCell({ row }) {
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
       return (
@@ -2648,7 +2733,8 @@ col.accessor("effortCompleted", {
     },
   }),
   col.accessor("unitRate", {
-    header: "Unit rate", size: 95,
+    header: () => <ColTooltip label="Unit Rate" tip="Cost per hour for this task. Pulled automatically from the Service Rate Card when a service is selected. Editable directly if needed." />,
+    size: 95,
     cell: function RateCell({ row }) {
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
       return (
@@ -2660,7 +2746,8 @@ col.accessor("effortCompleted", {
     },
   }),
   col.accessor("plannedCost", {
-    header: "Planned cost", size: 100,
+    header: () => <ColTooltip label="Planned Cost" tip="Effort-based planned cost only. Does not include fixed costs. (Planned Cost = Effort (h) × Unit Rate)" />,
+    size: 100,
     cell: function PlannedCell({ row }) {
       return (
         <span className="tg-cell-right"
@@ -2671,7 +2758,8 @@ col.accessor("effortCompleted", {
     },
   }),
   col.accessor("fixedCost", {
-    header: "Fixed cost", size: 100,
+    header: () => <ColTooltip label="Fixed Cost" tip="A one-off cost independent of effort. Examples: equipment, travel, venue hire. (Total Planned = Planned Cost + Fixed Cost)" />,
+    size: 100,
     cell: function FixedCell({ row }) {
       // Summary: show rolled-up total, read-only
       if (row.original.isSummary) {
@@ -2686,7 +2774,8 @@ col.accessor("effortCompleted", {
     },
   }),
   col.accessor("totalPlannedCost", {
-    header: "Total planned", size: 110,
+    header: () => <ColTooltip label="Total Planned" tip="Full budgeted cost combining effort-based cost and fixed costs. Primary budget figure used in KPIs. (Total Planned = Planned Cost + Fixed Cost)" />,
+    size: 110,
     cell: function TotalCell({ row }) {
       return (
         <span className="tg-cell-right"
@@ -2697,7 +2786,8 @@ col.accessor("effortCompleted", {
     },
   }),
 col.accessor("actualCost", {
-    header: "Actual effort cost", size: 120,
+    header: () => <ColTooltip label="Actual Effort Cost" tip="Cost of hours actually worked. Calculated automatically. (Actual Effort Cost = Completed (h) × Unit Rate)" />,
+    size: 120,
     cell: function ActualCell({ row }) {
       return (
         <span className="tg-cell-right"
@@ -2708,7 +2798,8 @@ col.accessor("actualCost", {
     },
   }),
   col.accessor("actualFixedCost", {
-    header: "Actual fixed cost", size: 120,
+    header: () => <ColTooltip label="Actual Fixed Cost" tip="Fixed costs already incurred. Enter manually as invoices or expenses are confirmed. (Total Actual = Actual Effort Cost + Actual Fixed Cost)" />,
+    size: 120,
     cell: function ActualFixedCell({ row }) {
       if (row.original.isSummary) {
         return (
@@ -2722,7 +2813,8 @@ col.accessor("actualCost", {
     },
   }),
   col.accessor("totalActualCost", {
-    header: "Total actual cost", size: 120,
+    header: () => <ColTooltip label="Total Actual Cost" tip="Total spent to date combining effort and confirmed fixed costs. (Total Actual = Actual Effort Cost + Actual Fixed Cost)" />,
+    size: 120,
     cell: function TotalActualCell({ row }) {
       return (
         <span className="tg-cell-right" style={{
@@ -2735,7 +2827,8 @@ col.accessor("actualCost", {
     },
   }),
   col.accessor("remainingCost", {
-    header: "Remaining", size: 100,
+    header: () => <ColTooltip label="Remaining" tip="Budget still available for this task. Negative means the task has overrun. (Remaining = Total Planned − Total Actual Cost)" />,
+    size: 100,
     cell: function RemCell({ row }) {
       const v = Number(row.original.remainingCost ?? 0);
       return (
@@ -2749,7 +2842,8 @@ col.accessor("actualCost", {
     },
   }),
   col.accessor("earnedValue", {
-  header: "Earned value", size: 95,
+  header: () => <ColTooltip label="Earned Value" tip="Monetary value of work actually completed. If EV is below actual cost, you are spending more than the work is worth. (EV = % Complete × Total Planned)" />,
+  size: 95,
   cell: function EvCell({ row }) {
     return (
       <span className="tg-cell-right"
