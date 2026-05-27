@@ -30,7 +30,7 @@ const COST_CATEGORIES = [
 
 const FUNDING_SOURCES = [
   { value: 0, label: "Regular Budget" },
-  { value: 1, label: "Support Account" },
+  { value: 1, label: "PK + Support Account" },
   { value: 2, label: "xB" },
   { value: 3, label: "10RCR (Cost Recovery)" },
   { value: 4, label: "20PCR (PK Cost Recovery)" },
@@ -59,22 +59,41 @@ const ALL_COLUMNS = [
 ] as const;
 
 const DEFAULT_VISIBLE = new Set([
+  // Schedule
   "startDate", "endDate", "pctDone", "assignedTo",
-  "quantity", "effortCompleted", "unitRate", "totalPlannedCost",
+  // Effort
+  "quantity", "effortCompleted",
+  // Rate
+  "unitRate",
+  // Costs - keep it simple
+  "totalPlannedCost", "totalActualCost", "remainingCost",
+  // Classification
   "fundingSource", "costCategory",
 ]);
 
 const DEFAULT_ORDER = [
   "select", "taskName",
-  // schedule
+
+  // Schedule
   "startDate", "endDate", "pctDone", "assignedTo",
-  // cost
-  "quantity", "effortCompleted", "unitRate", "totalPlannedCost",
-  "srcServiceName", "unit",
-  "plannedCost", "fixedCost",
+
+  // Effort
+  "quantity", "effortCompleted",
+
+  // Rate inputs
+  "srcServiceName", "unitRate", "unit",
+
+  // Planned costs (inputs → total)
+  "plannedCost", "fixedCost", "totalPlannedCost",
+
+  // Actual costs (inputs → total)
   "actualCost", "actualFixedCost", "totalActualCost",
+
+  // Outcome metrics
   "remainingCost", "earnedValue",
-  "fundingSource", "costCategory",
+
+  // Task attributes
+  "costCategory", "fundingSource",
 ];
 
 interface SrcItem {
@@ -414,7 +433,7 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
     686490005: "Indirect Costs",
   };
   const FUNDING_MAP: Record<number, string> = {
-    0: "Regular Budget", 1: "Support Account", 2: "xB", 3: "10RCR", 4: "20PCR",
+    0: "Regular Budget", 1: "PK + Support Account", 2: "xB", 3: "10RCR", 4: "20PCR",
   };
 
   const byCategoryPlanned: Record<string, number> = {};
@@ -1214,7 +1233,7 @@ const CSS = `
     left: 0;
     margin-top: 4px;
   }
-  .tg-col-tip:hover::after { opacity: 1; }
+  .tg-col-tip:hover::after { opacity: 1; transition-delay: 0.8s; }
   .tg-filter-panel {
     position: absolute; top: 0; right: 0; bottom: 0;
     width: 340px; background: white; z-index: 100;
@@ -1460,7 +1479,10 @@ function CurrencyInput({ value, onChange, disabled }: {
 
   function commit() {
     const n = parseFloat(local);
-    onChange(isNaN(n) ? 0 : n);
+    const resolved = isNaN(n) ? 0 : n;
+    if (resolved !== value) {
+      onChange(resolved);
+    }
     setFocused(false);
   }
 
@@ -1700,7 +1722,7 @@ function ServiceCombobox({ value, items, onChange }: {
   );
 }
 
-function TaskDetailPanel({
+const TaskDetailPanel = React.memo(function TaskDetailPanel({
   task,
   resources,
   srcItems,
@@ -1718,12 +1740,25 @@ function TaskDetailPanel({
   const [error, setError] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState(false);
 
+  const [localUnitRate, setLocalUnitRate] = React.useState<string>(task.unitRate ? String(task.unitRate) : "");
+  const [localFixedCost, setLocalFixedCost] = React.useState(task.fixedCost ? String(task.fixedCost) : "");
+  const [localActualFixed, setLocalActualFixed] = React.useState(task.actualFixedCost ? String(task.actualFixedCost) : "");
+  const [savedUnitRate, setSavedUnitRate] = React.useState<string | null>(null);
+  const [savedFixedCost, setSavedFixedCost] = React.useState<string | null>(null);
+  const [savedActualFixed, setSavedActualFixed] = React.useState<string | null>(null);
+  const unitRateRef = React.useRef<HTMLInputElement>(null);
+  const fixedCostRef = React.useRef<HTMLInputElement>(null);
+  const actualFixedRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+  setLocalUnitRate(task.unitRate ? String(task.unitRate) : "");
+  setLocalFixedCost(task.fixedCost ? String(task.fixedCost) : "");
+  setLocalActualFixed(task.actualFixedCost ? String(task.actualFixedCost) : "");
+  setLocal({});
+}, [task.recordId]);
+
   // Merge task with local edits
   const current = { ...task, ...local };
-
-  function updateLocal(field: keyof TaskNode, value: unknown) {
-    setLocal(prev => ({ ...prev, [field]: value }));
-  }
 
   function recalcLocal(overrides: Partial<TaskNode>): Partial<TaskNode> {
     const qty         = overrides.quantity        ?? current.quantity        ?? 0;
@@ -1749,9 +1784,14 @@ function TaskDetailPanel({
     };
   }
 
+  function commitUnitRate() {}
+  function commitFixedCost() {}
+  function commitActualFixed() {}
+  
   function onSrcChange(srcId: string) {
     const src = srcItems.find(s => s.id === srcId);
     if (!src) return;
+    setLocalUnitRate(String(src.price));
     setLocal(prev => ({
       ...prev,
       ...recalcLocal({
@@ -1766,10 +1806,19 @@ function TaskDetailPanel({
   }
 
   async function handleSave() {
+    const unitRateVal = parseFloat(unitRateRef.current?.value ?? "") || 0;
+    const fixedVal = parseFloat(fixedCostRef.current?.value ?? "") || 0;
+    const actualFixedVal = parseFloat(actualFixedRef.current?.value ?? "") || 0;
+    const finalLocal = { ...local, ...recalcLocal({ ...local, unitRate: unitRateVal, fixedCost: fixedVal, actualFixedCost: actualFixedVal }) };
+
     setSaving(true);
     setError(null);
     try {
-      await onSave(task.recordId, { ...local });
+      // Capture the new values before re-render resets them
+      setSavedUnitRate(unitRateRef.current?.value ?? null);
+      setSavedFixedCost(fixedCostRef.current?.value ?? null);
+      setSavedActualFixed(actualFixedRef.current?.value ?? null);
+      await onSave(task.recordId, finalLocal);
       setSaved(true);
       setTimeout(() => onClose(), 1000);
     } catch (e: any) {
@@ -1882,7 +1931,7 @@ function TaskDetailPanel({
           <Field label="Funding Source">
             <select style={selectStyle}
               value={current.fundingSource ?? ""}
-              onChange={e => updateLocal("fundingSource", e.target.value === "" ? null : Number(e.target.value))}>
+              onChange={e => { const val = e.target.value === "" ? null : Number(e.target.value); setLocal(prev => ({ ...prev, fundingSource: val })); }}>
               <option value="">— select —</option>
               {FUNDING_SOURCES.map(f => (
                 <option key={f.value} value={f.value}>{f.label}</option>
@@ -1893,7 +1942,7 @@ function TaskDetailPanel({
           <Field label="Cost Category">
             <select style={selectStyle}
               value={current.costCategory ?? ""}
-              onChange={e => updateLocal("costCategory", e.target.value === "" ? null : Number(e.target.value))}>
+              onChange={e => { const val = e.target.value === "" ? null : Number(e.target.value); setLocal(prev => ({ ...prev, costCategory: val })); }}>
               <option value="">— select —</option>
               {COST_CATEGORIES.map(c => (
                 <option key={c.value} value={c.value}>{c.label}</option>
@@ -1921,33 +1970,33 @@ function TaskDetailPanel({
                 value={current.unit ?? ""} readOnly />
             </Field>
             <Field label="Unit Rate">
-              <input style={inputStyle} type="number" min={0} step="0.01"
-                value={current.unitRate ?? ""}
-                onChange={e => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setLocal(prev => ({ ...prev, ...recalcLocal({ ...prev, unitRate: v }) }));
-                }}
+              <input ref={unitRateRef} style={inputStyle} 
+                type="text" inputMode="decimal"
+                defaultValue={savedUnitRate ?? localUnitRate}
+                key={savedUnitRate ?? localUnitRate}
+                onBlur={commitUnitRate}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commitUnitRate(); } }}
               />
             </Field>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <Field label="Fixed Cost ($)">
-              <input style={inputStyle} type="number" min={0} step="0.01"
-                value={current.fixedCost ?? ""}
-                onChange={e => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setLocal(prev => ({ ...prev, ...recalcLocal({ ...prev, fixedCost: v }) }));
-                }}
+             <input ref={fixedCostRef} style={inputStyle}
+                type="text" inputMode="decimal"
+                defaultValue={savedFixedCost ?? localFixedCost}
+                key={savedFixedCost ?? localFixedCost}
+                onBlur={commitFixedCost}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commitFixedCost(); } }}
               />
             </Field>
             <Field label="Actual Fixed Cost ($)">
-              <input style={inputStyle} type="number" min={0} step="0.01"
-                value={current.actualFixedCost ?? ""}
-                onChange={e => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setLocal(prev => ({ ...prev, ...recalcLocal({ ...prev, actualFixedCost: v }) }));
-                }}
+              <input ref={actualFixedRef} style={inputStyle}
+                type="text" inputMode="decimal"
+                defaultValue={savedActualFixed ?? localActualFixed}
+                key={savedActualFixed ?? localActualFixed}
+                onBlur={commitActualFixed}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commitActualFixed(); } }}
               />
             </Field>
           </div>
@@ -1998,7 +2047,7 @@ function TaskDetailPanel({
       </div>
     </React.Fragment>
   );
-}
+});
 
 export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds, latestApprovedBudget }: Props) {
   const [data, setData]             = React.useState<TaskNode[]>(initialData);
@@ -2054,6 +2103,10 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     return {};
   });
   const [detailTask, setDetailTask] = React.useState<TaskNode | null>(null);
+  const frozenDetailTask = React.useRef<TaskNode | null>(null);
+  if (detailTask && frozenDetailTask.current?.recordId !== detailTask.recordId) {
+    frozenDetailTask.current = detailTask;
+  }
 
   // Persist sizing changes
   React.useEffect(() => {
@@ -2650,7 +2703,7 @@ return (
 
   // ── Cost — input fields hidden on summary rows ────────────────────────────
   col.accessor("fundingSource", {
-    header: () => <ColTooltip label="Funding Source" tip="The budget line funding this task. Regular Budget = core UN budget · Support Account = peacekeeping support · xB = extrabudgetary · 10RCR = cost recovery · 20PCR = peacekeeping cost recovery." />,
+    header: () => <ColTooltip label="Funding Source" tip="The budget line funding this task. Regular Budget = core UN budget · PK + Support Account = peacekeeping support · xB = extrabudgetary · 10RCR = cost recovery · 20PCR = peacekeeping cost recovery." />,
     size: 160,
     cell: function FundingCell({ row }) {
       if (row.original.isSummary) return <span className="tg-dash">—</span>;
@@ -2958,6 +3011,15 @@ function toggleColumn(id: string) {
     const rightCols = new Set(["plannedCost","fixedCost","totalPlannedCost",
     "actualCost","actualFixedCost","totalActualCost","remainingCost","earnedValue","unitRate","quantity"]);
 
+  const handleDetailSave = React.useCallback(async (recordId: string, updates: Partial<TaskNode>) => {
+    await onSave({ [recordId]: updates });
+    onRefresh();
+  }, []);
+
+  const handleDetailClose = React.useCallback(() => {
+    setDetailTask(null);
+  }, []);
+
   return (
     <div className="tg-wrap">
       <style>{CSS}</style>
@@ -3115,11 +3177,8 @@ function toggleColumn(id: string) {
           task={detailTask}
           resources={taskResources[detailTask.recordId] ?? []}
           srcItems={resolvedSrcItems}
-          onSave={async (recordId, updates) => {
-            await onSave({ [recordId]: updates });
-            onRefresh();
-          }}
-          onClose={() => setDetailTask(null)}
+          onSave={handleDetailSave}
+          onClose={handleDetailClose}
         />
       )}
 
@@ -3356,8 +3415,8 @@ function toggleColumn(id: string) {
               return (
                 <tr key={row.id}
                   className={selectedRows.includes(row.original.recordId) ? "tg-row-selected" : ""}
-                  onMouseEnter={() => setHoveredRow(row.id)}
-                  onMouseLeave={() => setHoveredRow(null)}
+                  onMouseEnter={() => { if (!detailTask) setHoveredRow(row.id); }}
+                  onMouseLeave={() => { if (!detailTask) setHoveredRow(null); }}
                   >
                   {row.getVisibleCells().map((cell, i) => (
                   <td key={cell.id} style={{
@@ -3379,7 +3438,7 @@ function toggleColumn(id: string) {
 
       <div className="tg-footer">
         <span>{table.getRowModel().rows.length} rows visible</span>
-        <span>Double-click any cell to edit</span>
+        <span></span>
       </div>
     </div>
   );

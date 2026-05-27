@@ -1,3 +1,4 @@
+/// <reference types="powerapps-component-framework" />
 import { IInputs, IOutputs } from "./generated/ManifestTypes";
 import * as React from "react";
 import * as ReactDOM from "react-dom";
@@ -97,6 +98,7 @@ export class TaskGridControl
   private container!: HTMLDivElement;
   private notifyOutputChanged!: () => void;
   private latestApprovedBudget: number = 0;
+  private updateProps: ((props: any) => void) | null = null;
 
 public init(
   context: ComponentFramework.Context<IInputs>,
@@ -232,17 +234,28 @@ const rolledUp = rollupCosts(tree);
         .catch(() => { /* silently ignore */ });
     }
 
-    ReactDOM.render(
-      React.createElement(TaskGrid, {
-        data:                 rolledUp,
-        onSave:               this.saveToDataverse.bind(this),
-        onRefresh:            () => context.parameters.TaskDataSet.refresh(),
-        userId:               context.userSettings.userId,
-        taskIds,
-        latestApprovedBudget: this.latestApprovedBudget,
-      }),
-      this.container
-    );
+    const props = {
+      data:                 rolledUp,
+      onSave:               this.saveToDataverse.bind(this),
+      onRefresh:            () => context.parameters.TaskDataSet.refresh(),
+      userId:               context.userSettings.userId,
+      taskIds,
+      latestApprovedBudget: this.latestApprovedBudget,
+    };
+
+    if (this.updateProps) {
+      // Already mounted — just update props without remounting
+      this.updateProps(props);
+    } else {
+      // First render — mount the React tree
+      const self = this;
+      function Wrapper() {
+        const [currentProps, setCurrentProps] = React.useState(props);
+        self.updateProps = setCurrentProps;
+        return React.createElement(TaskGrid, currentProps);
+      }
+      ReactDOM.render(React.createElement(Wrapper), this.container);
+    }
   }
 
 private async saveToDataverse(
