@@ -247,13 +247,12 @@ function GaugeChart({ pct, color }: { pct: number; color: string }) {
   const x2 = cx + r, y2 = cy;
   const px = cx + r * Math.cos(angle);
   const py = cy + r * Math.sin(angle);
-  const largeArc = pct > 50 ? 1 : 0;
   return (
     <svg width="210" height="118" viewBox="0 0 210 118">
       <path d={`M ${x1} ${y1} A ${r} ${r} 0 1 1 ${x2} ${y2}`}
         fill="none" stroke="#e5e7eb" strokeWidth="16" strokeLinecap="round"/>
       {pct > 0 && (
-        <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${px} ${py}`}
+        <path d={`M ${x1} ${y1} A ${r} ${r} 0 0 0 ${px} ${py}`}
           fill="none" stroke={color} strokeWidth="16" strokeLinecap="round"/>
       )}
       <line x1={cx} y1={cy}
@@ -390,9 +389,7 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
   const totalRemaining = totalPlanned - totalActual;
   const totalEV        = leaves.reduce((s, n) => s + (n.earnedValue      ?? 0), 0);
 
-  const weightedPct = totalPlanned > 0
-    ? leaves.reduce((s, n) => s + ((n.pctDone ?? 0) * (n.totalPlannedCost ?? 0)), 0) / totalPlanned
-    : 0;
+  const weightedPct = data[0]?.pctDone ?? 0;
 
   const consumptionRate = (weightedPct > 0 && totalPlanned > 0)
     ? (totalActual / totalPlanned) / (weightedPct / 100)
@@ -485,13 +482,55 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
       fundingGroups[f].push(n);
     });
     Object.entries(fundingGroups).forEach(([funding, tasks]) => {
-      const qty      = tasks.reduce((s, n) => s + (n.quantity ?? 0), 0);
-      const total    = tasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
-      const unitCost = qty > 0 ? total / qty : 0;
-      const remarks  = tasks.map(n => n.taskName).filter(Boolean).join(", ");
-      pidRows.push({ category: cat.label, qty, unitCost, totalCost: total, funding, remarks });
+      // Sub-group by unit rate so tasks with different rates stay separate
+      const rateGroups: Record<string, TaskNode[]> = {};
+      tasks.forEach(n => {
+        const rateKey = String(n.unitRate ?? 0);
+        if (!rateGroups[rateKey]) rateGroups[rateKey] = [];
+        rateGroups[rateKey].push(n);
+      });
+
+      Object.entries(rateGroups).forEach(([rateKey, rateTasks]) => {
+        const unitRate = Number(rateKey);
+        const qty      = rateTasks.reduce((s, n) => s + (n.quantity ?? 0), 0);
+        const fixedSum = rateTasks.reduce((s, n) => s + (n.fixedCost ?? 0), 0);
+        const total    = rateTasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
+        // If no effort hours but has fixed cost, show qty=1, unitCost=total
+        const displayQty      = qty === 0 && fixedSum > 0 ? 1     : qty;
+        const displayUnitCost = qty === 0 && fixedSum > 0 ? total  : unitRate;
+        const remarks  = rateTasks.map(n => n.taskName).filter(Boolean).join(", ");
+        pidRows.push({ category: cat.label, qty: displayQty, unitCost: displayUnitCost, totalCost: total, funding, remarks });
+      });
     });
   });
+  // After the COST_CATS_FULL.forEach block, add:
+  const unassignedLeaves = leaves.filter(n => n.costCategory == null);
+  if (unassignedLeaves.length > 0) {
+    const fundingGroups: Record<string, TaskNode[]> = {};
+    unassignedLeaves.forEach(n => {
+      const f = n.fundingSource != null ? (FUNDING_MAP[n.fundingSource] ?? "Other") : "Unassigned";
+      if (!fundingGroups[f]) fundingGroups[f] = [];
+      fundingGroups[f].push(n);
+    });
+    Object.entries(fundingGroups).forEach(([funding, tasks]) => {
+      const rateGroups: Record<string, TaskNode[]> = {};
+      tasks.forEach(n => {
+        const rateKey = String(n.unitRate ?? 0);
+        if (!rateGroups[rateKey]) rateGroups[rateKey] = [];
+        rateGroups[rateKey].push(n);
+      });
+      Object.entries(rateGroups).forEach(([rateKey, rateTasks]) => {
+        const unitRate   = Number(rateKey);
+        const qty        = rateTasks.reduce((s, n) => s + (n.quantity ?? 0), 0);
+        const fixedSum   = rateTasks.reduce((s, n) => s + (n.fixedCost ?? 0), 0);
+        const total      = rateTasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
+        const displayQty      = qty === 0 && fixedSum > 0 ? 1     : qty;
+        const displayUnitCost = qty === 0 && fixedSum > 0 ? total : unitRate;
+        const remarks    = rateTasks.map(n => n.taskName).filter(Boolean).join(", ");
+        pidRows.push({ category: "Unassigned", qty: displayQty, unitCost: displayUnitCost, totalCost: total, funding, remarks });
+      });
+    });
+  }
   const pidTotal = pidRows.reduce((s, r) => s + r.totalCost, 0);
 
 function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
@@ -648,9 +687,9 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
   function copyPidTable() {
     const header = "Category\tQty\tUnit Cost\tTotal Cost\tFunding Source\tRemarks";
     const rows = pidRows.map(r =>
-      `${r.category}\t${r.qty.toFixed(2)}\t${fmtCurrency(r.unitCost)}\t${fmtCurrency(r.totalCost)}\t${r.funding}\t${r.remarks}`
+      `${r.category}\t${r.qty.toFixed(0)}\t${fmtCurrency(r.unitCost)}\t${fmtCurrency(r.totalCost)}\t${r.funding}\t${r.remarks}`
     );
-    const total = `Total\t\t\t${fmtCurrency(pidTotal)}\t`;
+    const total = `Total\t\t\t${fmtCurrency(pidTotal)}\t\t`;
     navigator.clipboard.writeText([header, ...rows, total].join("\n")).then(() => {
       setPidCopied(true);
       setTimeout(() => setPidCopied(false), 2000);
@@ -659,38 +698,40 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
 
   // Gauge — bigger, standalone
   function BigGauge() {
-    const r = 110, cx = 145, cy = 130;
-    const angle = Math.PI + (pctConsumed / 100) * Math.PI;
-    const x1 = cx - r, y1 = cy;
-    const x2 = cx + r, y2 = cy;
-    const px = cx + r * Math.cos(angle);
-    const py = cy + r * Math.sin(angle);
-    const largeArc = pctConsumed > 50 ? 1 : 0;
-    return (
-      <svg width="290" height="162" viewBox="0 0 290 162">
-        <path d={`M ${x1} ${y1} A ${r} ${r} 0 1 1 ${x2} ${y2}`}
-          fill="none" stroke="#e5e7eb" strokeWidth="20" strokeLinecap="round"/>
-        {pctConsumed > 0 && (
-          <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${px} ${py}`}
-            fill="none" stroke={gaugeColor} strokeWidth="20" strokeLinecap="round"/>
-        )}
-        <line x1={cx} y1={cy}
-          x2={cx + (r - 16) * Math.cos(angle)}
-          y2={cy + (r - 16) * Math.sin(angle)}
-          stroke="#1f2937" strokeWidth="3.5" strokeLinecap="round"/>
-        <circle cx={cx} cy={cy} r="7" fill="#1f2937"/>
-        <text x="8" y="158" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">0%</text>
-        <text x="244" y="158" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">100%</text>
-        <text x={cx} y={cy - 58} fontSize="13" fill="#374151"
-          textAnchor="middle" fontFamily="Segoe UI, sans-serif" fontWeight="700">SPENT</text>
-        <text x={cx} y={cy - 16} fontSize="36" fontWeight="800" fill={gaugeColor}
-          textAnchor="middle" fontFamily="Segoe UI, sans-serif">
-          {Math.min(pctConsumed, 999).toFixed(1)}%
-        </text>
-      </svg>
-    );
-  }
+  const r = 110, cx = 145, cy = 145;
+  const angle = Math.PI + (pctConsumed / 100) * Math.PI;
+  const x1 = cx - r, y1 = cy;
+  const x2 = cx + r, y2 = cy;
+  const px = cx + r * Math.cos(angle);
+  const py = cy + r * Math.sin(angle);
 
+  return (
+    <svg width="290" height="175" viewBox="0 0 290 175">
+      {/* Gray background */}
+      <path d={`M ${x1} ${y1} A ${r} ${r} 0 1 1 ${x2} ${y2}`}
+        fill="none" stroke="#e5e7eb" strokeWidth="16" strokeLinecap="round"/>
+      {/* Green fill */}
+      {pctConsumed > 0 && (
+        <path d={`M ${x1} ${y1} A ${r} ${r} 0 0 1 ${px} ${py}`}
+          fill="none" stroke={gaugeColor} strokeWidth="16" strokeLinecap="round"/>
+      )}
+      {/* Needle */}
+      <line x1={cx} y1={cy}
+        x2={cx + (r - 12) * Math.cos(angle)}
+        y2={cy + (r - 12) * Math.sin(angle)}
+        stroke="#1f2937" strokeWidth="3.5" strokeLinecap="round"/>
+      <circle cx={cx} cy={cy} r="7" fill="#1f2937"/>
+      <text x="8" y="172" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">0%</text>
+      <text x="244" y="172" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">100%</text>
+      <text x={cx} y={cy - 50} fontSize="13" fill="#374151"
+        textAnchor="middle" fontFamily="Segoe UI, sans-serif" fontWeight="700">SPENT</text>
+      <text x={cx} y={cy - 14} fontSize="36" fontWeight="800" fill={gaugeColor}
+        textAnchor="middle" fontFamily="Segoe UI, sans-serif">
+        {Math.min(pctConsumed, 999).toFixed(1)}%
+      </text>
+    </svg>
+  );
+}
   return (
     <div className="tg-summary-panel">
       <div className="tg-summary-header">
@@ -784,7 +825,7 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
           )}
           {pcrStatus.notSet && (
             <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
-              Set pmo_latestapprovedbudget on the project record to enable this KPI.
+              No approved budget set yet. Once the project budget is approved and recorded, this KPI will show whether a Project Change Request is needed.
             </div>
           )}
         </div>
@@ -940,7 +981,7 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
                   <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{fmtCurrency(r.unitCost)}</td>
                   <td style={{ padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", color: "#111827", fontSize: 13 }}>{fmtCurrency(r.totalCost)}</td>
                   <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#374151", fontSize: 13 }}>{r.funding}</td>
-                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#6b7280", fontSize: 12, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.remarks}</td>
+                  <td style={{ padding: "8px 10px", borderBottom: "1px solid #f3f4f6", color: "#6b7280", fontSize: 12, maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.remarks}</td>
                 </tr>
               ))
             )}
@@ -1398,7 +1439,7 @@ function ProgressCell({ value }: { value: number }) {
       <div className="tg-progress-track">
         <div className="tg-progress-fill" style={{ width: `${pct}%`, background: color }} />
       </div>
-      <span className="tg-progress-label">{pct.toFixed(1)}%</span>
+      <span className="tg-progress-label">{pct.toFixed(0)}%</span>
     </div>
   );
 }
@@ -2456,7 +2497,7 @@ function onActualFixedCostChange(row: TaskNode, actualFixed: number) {
 
 function getVisibleLeafIds(): string[] {
     return table.getRowModel().rows
-      .filter(r => !r.original.isSummary)
+      .filter(r => !r.original.isSummary && (totalActiveFilters === 0 || isLeafVisible(r.original)))
       .map(r => r.original.recordId);
   }
 
@@ -2506,10 +2547,15 @@ function getVisibleLeafIds(): string[] {
     setLastSelectedId(recordId);
   }
 
+function getVisibleSelectedIds(): string[] {
+    const visibleIds = new Set(getVisibleLeafIds());
+    return selectedRows.filter(id => visibleIds.has(id));
+  }
+
 function applyBulkSRC(srcId: string) {
     const src = srcItems.find(s => s.id === srcId);
     if (!src) return;
-    selectedRows.forEach(recordId => {
+    getVisibleSelectedIds().forEach(recordId => {
       const node = table.getRowModel().rows.find(r => r.original.recordId === recordId)?.original;
       if (!node) return;
       applyUpdates(recordId, recalc(node, {
@@ -2520,11 +2566,11 @@ function applyBulkSRC(srcId: string) {
   }
 
 function applyBulkFunding(value: number) {
-    selectedRows.forEach(recordId => updateField(recordId, "fundingSource", value));
+    getVisibleSelectedIds().forEach(recordId => updateField(recordId, "fundingSource", value));
   }
 
   function applyBulkCategory(value: number) {
-    selectedRows.forEach(recordId => updateField(recordId, "costCategory", value));
+    getVisibleSelectedIds().forEach(recordId => updateField(recordId, "costCategory", value));
   }
 
 function clearAllFilters() {
@@ -3077,7 +3123,7 @@ function toggleColumn(id: string) {
     <React.Fragment>
       <div className="tg-divider" />
       <span style={{ fontSize: 12, color: "#107c10", fontWeight: 600, whiteSpace: "nowrap" }}>
-        ✓ {selectedRows.length} {selectedRows.length === 1 ? "row" : "rows"} selected
+        ✓ {getVisibleSelectedIds().length} {getVisibleSelectedIds().length === 1 ? "row" : "rows"} selected (visible)
       </span>
 
       <BulkDropdown label="Funding">
