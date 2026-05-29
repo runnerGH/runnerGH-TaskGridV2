@@ -77,11 +77,14 @@ const DEFAULT_ORDER = [
   // Schedule
   "startDate", "endDate", "pctDone", "assignedTo",
 
+  // Classification (set these first before costs)
+  "costCategory", "fundingSource",
+
+  // Service & Rate
+  "srcServiceName", "unit", "unitRate",
+
   // Effort
   "quantity", "effortCompleted",
-
-  // Rate inputs
-  "srcServiceName", "unitRate", "unit",
 
   // Planned costs (inputs → total)
   "plannedCost", "fixedCost", "totalPlannedCost",
@@ -91,9 +94,6 @@ const DEFAULT_ORDER = [
 
   // Outcome metrics
   "remainingCost", "earnedValue",
-
-  // Task attributes
-  "costCategory", "fundingSource",
 ];
 
 interface SrcItem {
@@ -458,12 +458,14 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
     ? (totalPlanned - latestApprovedBudget) / latestApprovedBudget
     : null;
   const pcrStatus = pcrOverrun === null
-    ? { label: "Not Set", color: "#6b7280", bg: "#f9fafb", triggered: false, notSet: true }
-    : pcrOverrun >= 0.10
-    ? { label: "PCR Required",  color: "#dc2626", bg: "#fef2f2", triggered: true,  notSet: false }
+    ? { label: "Not Set",       color: "#6b7280", bg: "#f9fafb", triggered: false, notSet: true,  approver: "" }
+    : pcrOverrun > 0.25
+    ? { label: "PCR Required",  color: "#dc2626", bg: "#fef2f2", triggered: true,  notSet: false, approver: "Approving Authority" }
+    : pcrOverrun > 0.10
+    ? { label: "PCR Required",  color: "#d97706", bg: "#fffbeb", triggered: true,  notSet: false, approver: "Project Board" }
     : pcrOverrun >= 0
-    ? { label: "Within Budget", color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false }
-    : { label: "Under Budget",  color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false };
+    ? { label: "Within Budget", color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false, approver: "" }
+    : { label: "Under Budget",  color: "#16a34a", bg: "#f0fdf4", triggered: false, notSet: false, approver: "" };
 
   const COST_CAT_MAP: Record<number, string> = {
     686490000: "Staff and Other Personnel Costs",
@@ -842,12 +844,19 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
               title="Needs PCR?"
               explanation="A PCR is needed when planned cost exceeds the approved budget by 10% or more."
               formula="Overrun % = (Planned − Approved) ÷ Approved × 100"
-              thresholds="🟢 < 10% over = Within Budget · 🔴 ≥ 10% = PCR Required"
+              thresholds="🟢 0–10% = Within Budget · 🟡 >10–25% = PCR → Project Board · 🔴 >25% = PCR → Approving Authority"
             />
           </div>
           <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 22, height: 22, borderRadius: "50%", background: pcrStatus.color, flexShrink: 0 }}/>
-            <span style={{ fontSize: 20, fontWeight: 800, color: pcrStatus.color }}>{pcrStatus.label}</span>
+            <div>
+              <span style={{ fontSize: 20, fontWeight: 800, color: pcrStatus.color }}>{pcrStatus.label}</span>
+              {pcrStatus.approver && (
+                <div style={{ fontSize: 12, fontWeight: 700, color: pcrStatus.color, marginTop: 2 }}>
+                  → Submit to {pcrStatus.approver}
+                </div>
+              )}
+            </div>
           </div>
           {!pcrStatus.notSet && (
             <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
