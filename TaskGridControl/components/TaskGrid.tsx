@@ -201,6 +201,50 @@ function BulkMenuItem({ onClick, children }: { onClick: () => void; children: Re
   );
 }
 
+function BulkUnitRateInput({ onApply }: { onApply: (rate: number) => void }) {
+  const [value, setValue] = React.useState("");
+  return (
+    <div style={{ padding: "8px 10px" }} onClick={e => e.stopPropagation()}>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, fontWeight: 600 }}>
+        Enter rate per hour
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          autoFocus
+          type="text"
+          inputMode="decimal"
+          placeholder="e.g. 50.00"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              const v = parseFloat(value);
+              if (!isNaN(v) && v >= 0) { onApply(v); setValue(""); }
+            }
+          }}
+          style={{
+            width: 110, border: "1px solid #d1d5db", borderRadius: 3,
+            padding: "5px 8px", fontSize: 13, outline: "none",
+            fontFamily: "Segoe UI, system-ui, sans-serif",
+          }}
+        />
+        <button
+          onClick={() => {
+            const v = parseFloat(value);
+            if (!isNaN(v) && v >= 0) { onApply(v); setValue(""); }
+          }}
+          style={{
+            padding: "5px 10px", background: "#107c10", color: "white",
+            border: "none", borderRadius: 3, cursor: "pointer", fontSize: 13,
+            fontWeight: 600,
+          }}>
+          Apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BulkServiceSearch({ items, onSelect }: {
   items: SrcItem[]; onSelect: (id: string) => void;
 }) {
@@ -2569,6 +2613,14 @@ function applyBulkFunding(value: number) {
     getVisibleSelectedIds().forEach(recordId => updateField(recordId, "fundingSource", value));
   }
 
+  function applyBulkUnitRate(rate: number) {
+    getVisibleSelectedIds().forEach(recordId => {
+      const node = table.getRowModel().rows.find(r => r.original.recordId === recordId)?.original;
+      if (!node) return;
+      applyUpdates(recordId, recalc(node, { unitRate: rate }));
+    });
+  }
+
   function applyBulkCategory(value: number) {
     getVisibleSelectedIds().forEach(recordId => updateField(recordId, "costCategory", value));
   }
@@ -3140,6 +3192,10 @@ function toggleColumn(id: string) {
             {c.label}
           </BulkMenuItem>
         ))}
+      </BulkDropdown>
+
+      <BulkDropdown label="Unit Rate">
+        <BulkUnitRateInput onApply={rate => { applyBulkUnitRate(rate); }} />
       </BulkDropdown>
 
       <BulkDropdown label="Service">
