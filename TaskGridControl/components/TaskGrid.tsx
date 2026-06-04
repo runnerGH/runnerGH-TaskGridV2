@@ -9,14 +9,16 @@ import {
 } from "@tanstack/react-table";
 import * as ReactDOM from "react-dom";
 import { TaskNode, updateNodeInTree } from "./buildTree";
+import { FinancialTimeline } from "./FinancialTimeline";
 
 interface Props {
-  data:                  TaskNode[];
-  onSave:                (changes: Record<string, Partial<TaskNode>>) => Promise<void>;
-  onRefresh:             () => void;
-  userId:                string;
-  taskIds:               string[];
-  latestApprovedBudget:  number;
+  data:                 TaskNode[];
+  onSave:               (changes: Record<string, Partial<TaskNode>>) => Promise<void>;
+  onRefresh:            () => void;
+  userId:               string;
+  taskIds:              string[];
+  latestApprovedBudget: number;
+  projectId:            string;
 }
 
 const COST_CATEGORIES = [
@@ -519,8 +521,11 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
   type PidRow = { category: string; qty: number; unitCost: number; totalCost: number; funding: string; remarks: string };
   const pidRows: PidRow[] = [];
   COST_CATS_FULL.forEach(cat => {
-    const catLeaves = leaves.filter(n => n.costCategory === cat.value);
-    if (catLeaves.length === 0) return;
+    const catLeaves = leaves.filter(n =>
+  n.costCategory === cat.value &&
+  ((n.totalPlannedCost ?? 0) > 0 || (n.fixedCost ?? 0) > 0 || (n.actualFixedCost ?? 0) > 0)
+);
+if (catLeaves.length === 0) return;
     const fundingGroups: Record<string, TaskNode[]> = {};
     catLeaves.forEach(n => {
       const f = n.fundingSource != null ? (FUNDING_MAP[n.fundingSource] ?? "Other") : "Unassigned";
@@ -550,7 +555,10 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
     });
   });
   // After the COST_CATS_FULL.forEach block, add:
-  const unassignedLeaves = leaves.filter(n => n.costCategory == null);
+  const unassignedLeaves = leaves.filter(n =>
+  n.costCategory == null &&
+  ((n.totalPlannedCost ?? 0) > 0 || (n.fixedCost ?? 0) > 0 || (n.actualFixedCost ?? 0) > 0)
+);
   if (unassignedLeaves.length > 0) {
     const fundingGroups: Record<string, TaskNode[]> = {};
     unassignedLeaves.forEach(n => {
@@ -1498,8 +1506,8 @@ function ProgressCell({ value }: { value: number }) {
 }
 
 const AVATAR_COLORS = [
-  "#0078d4","#107c10","#8764b8","#d83b01",
-  "#038387","#b4009e","#004e8c","#498205",
+  "#0F4C81","#1B6B3A","#6B3FA0","#B45309",
+  "#0E7490","#7C3D12","#1E3A5F","#3D6B35",
 ];
 
 function getInitials(name: string): string {
@@ -2143,7 +2151,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
   );
 });
 
-export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds, latestApprovedBudget }: Props) {
+export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds, latestApprovedBudget, projectId }: Props) {
   const [data, setData]             = React.useState<TaskNode[]>(initialData);
   //const [expanded, setExpanded]     = React.useState<ExpandedState>({ "0": true });
   const [allExpanded, setAllExpanded] = React.useState(false);
@@ -2220,6 +2228,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
     const [selectedRows, setSelectedRows] = React.useState<string[]>([]);
     const [lastSelectedId, setLastSelectedId]   = React.useState<string | null>(null);
     const [summaryOpen, setSummaryOpen] = React.useState(false);
+    const [timelineOpen, setTimelineOpen] = React.useState(false);
     const [sectionOpen, setSectionOpen] = React.useState<Record<string, boolean>>({
       funding: true, category: true, service: true, assignee: true,
     });
@@ -3168,6 +3177,7 @@ function toggleColumn(id: string) {
     Summary
     {summaryOpen && <span className="tg-filter-badge">●</span>}
   </button>
+  {/* Timeline button hidden — msdyn_plannedwork contains remaining work not planned work (Microsoft platform limitation) */}
   <button className="tg-btn" onClick={() => setFilterOpen(o => !o)}>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3551,6 +3561,16 @@ function toggleColumn(id: string) {
         <span>{table.getRowModel().rows.length} rows visible</span>
         <span></span>
       </div>
+      {timelineOpen && (
+      <FinancialTimeline
+        data={data}
+        isLeafVisible={isLeafVisible}
+        hasActiveFilters={totalActiveFilters > 0}
+        onClose={() => setTimelineOpen(false)}
+        projectId={projectId}
+        taskIds={taskIds}
+      />
+      )}
     </div>
   );
 }

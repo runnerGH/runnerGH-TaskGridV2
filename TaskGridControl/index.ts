@@ -241,6 +241,7 @@ const rolledUp = rollupCosts(tree);
       userId:               context.userSettings.userId,
       taskIds,
       latestApprovedBudget: this.latestApprovedBudget,
+      projectId: context.parameters.TaskDataSet.getTargetEntityType(),
     };
 
     if (this.updateProps) {
