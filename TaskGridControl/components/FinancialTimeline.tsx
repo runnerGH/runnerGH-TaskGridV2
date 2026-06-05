@@ -24,24 +24,24 @@ import { TaskNode } from "./buildTree";
 
 // ─── Brand palette ────────────────────────────────────────────────────────────
 const C = {
-  planned:      "#5C9057",
-  actual:       "#234A21",
-  remaining:    "#709D6A",
-  cumPlanned:   "#1E3C1C",
-  cumActual:    "#97B891",
-  nowBg:        "#D2E1D0",
-  nowText:      "#234A21",
-  nowMarker:    "#2D672A",
-  totalBg:      "#EBF2EA",
-  totalBorder:  "#5C9057",
-  totalText:    "#1E3C1C",
-  headerBorder: "#ABC6A6",
-  rowDivider:   "#F0F5EF",
-  sepLine:      "#BED3BA",
-  panelBg:      "#FAFCFA",
-  pillActiveBg: "#EBF2EA",
-  negativeText: "#C0392B",
-  negativeBg:   "#FEF2F2",
+  planned:      "#1e40af",
+  actual:       "#0f766e",
+  remaining:    "#374151",
+  cumPlanned:   "#6366f1",
+  cumActual:    "#0f766e",
+  nowBg:        "#eff6ff",
+  nowText:      "#1d4ed8",
+  nowMarker:    "#2563eb",
+  totalBg:      "#f9fafb",
+  totalBorder:  "#e5e7eb",
+  totalText:    "#111827",
+  headerBorder: "#e5e7eb",
+  rowDivider:   "#f3f4f6",
+  sepLine:      "#e5e7eb",
+  panelBg:      "#ffffff",
+  pillActiveBg: "#eff6ff",
+  negativeText: "#dc2626",
+  negativeBg:   "#fef2f2",
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -81,11 +81,9 @@ interface Props {
 // ─── Row definitions ──────────────────────────────────────────────────────────
 
 const ROW_DEFS: { key: RowKey; label: string }[] = [
-  { key: "planned",    label: "Planned"            },
   { key: "actual",     label: "Actual"             },
   { key: "remaining",  label: "Remaining"          },
   { key: "cumPlanned", label: "Cumulative Planned"  },
-  { key: "cumActual",  label: "Cumulative Actual"   },
 ];
 
 const ROW_COLORS: Record<RowKey, string> = {
@@ -97,7 +95,7 @@ const ROW_COLORS: Record<RowKey, string> = {
 };
 
 const DEFAULT_VISIBLE_ROWS = new Set<RowKey>(
-  ["planned", "actual", "remaining", "cumPlanned", "cumActual"]
+  ["actual", "remaining"]
 );
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -188,17 +186,17 @@ function distributeCost(
   plannedByPeriod:       number[];
   plannedEffortByPeriod: number[];
   plannedFixedByPeriod:  number[];
-  actualByPeriod:        number[];
-  actualEffortByPeriod:  number[];
-  actualFixedByPeriod:   number[];
+  remainingByPeriod:     number[];
+  remainingEffortByPeriod: number[];
+  remainingFixedByPeriod:  number[];
 } {
   const n = periods.length;
-  const plannedByPeriod       = new Array(n).fill(0);
-  const plannedEffortByPeriod = new Array(n).fill(0);
-  const plannedFixedByPeriod  = new Array(n).fill(0);
-  const actualByPeriod        = new Array(n).fill(0);
-  const actualEffortByPeriod  = new Array(n).fill(0);
-  const actualFixedByPeriod   = new Array(n).fill(0);
+  const plannedByPeriod         = new Array(n).fill(0);
+  const plannedEffortByPeriod   = new Array(n).fill(0);
+  const plannedFixedByPeriod    = new Array(n).fill(0);
+  const remainingByPeriod       = new Array(n).fill(0);
+  const remainingEffortByPeriod = new Array(n).fill(0);
+  const remainingFixedByPeriod  = new Array(n).fill(0);
 
   // Use fresh Date objects — never mutate shared references
   const startRaw = parseDate(task.startDate);
@@ -206,7 +204,7 @@ function distributeCost(
 
   if (!startRaw || !endRaw) {
     return { plannedByPeriod, plannedEffortByPeriod, plannedFixedByPeriod,
-             actualByPeriod, actualEffortByPeriod, actualFixedByPeriod };
+             remainingByPeriod, remainingEffortByPeriod, remainingFixedByPeriod };
   }
 
   // Snap to day boundaries using NEW Date objects
@@ -263,35 +261,58 @@ function distributeCost(
     }
   }
 
-  // ── ACTUAL: distribute actualCost + actualFixedCost proportionally ────────
-  // Uses % complete to determine how far through the task actuals have occurred.
-  // actualCost and actualFixedCost come directly from TaskNode — no date mutation.
-  const pct         = Math.min(100, Math.max(0, task.pctDone ?? 0)) / 100;
-  const actualEffort = task.actualCost      ?? 0;  // effortCompleted × unitRate
-  const actualFixed  = task.actualFixedCost ?? 0;
-  const totalActual  = actualEffort + actualFixed;
+  // ── REMAINING: exact from msdyn_plannedwork current slots ────────────────
+  // msdyn_plannedwork always contains the exact remaining slots — reliable
+  // regardless of completion status. Fixed cost remaining = proportional.
+  const remainingFixedCost = task.fixedCost ?? 0;
+  const remainingActualFixed = task.actualFixedCost ?? 0;
+  const fixedRemaining = Math.max(0, remainingFixedCost - remainingActualFixed);
 
-  if (totalActual > 0 && pct > 0) {
-    // Actual end = start + pct × taskSpan (fresh calculation, no mutation)
-    const actualEndMs  = start.getTime() + pct * taskSpan;
-    const actualSpanMs = Math.max(1, actualEndMs - start.getTime());
-
+  // Remaining fixed — proportional across task duration
+  if (fixedRemaining > 0) {
     periods.forEach((_, i) => {
       const { from, to } = bounds[i];
-      const aFrom = Math.max(start.getTime(), from.getTime());
-      const aTo   = Math.min(actualEndMs,     to.getTime());
-      if (aFrom < aTo) {
-        const ratio = (aTo - aFrom) / actualSpanMs;
-        actualByPeriod[i]       += ratio * totalActual;
-        actualEffortByPeriod[i] += ratio * actualEffort;
-        actualFixedByPeriod[i]  += ratio * actualFixed;
+      const pFrom = Math.max(start.getTime(), from.getTime());
+      const pTo   = Math.min(end.getTime(),   to.getTime());
+      if (pFrom <= pTo) {
+        const v = ((pTo - pFrom) / taskSpan) * fixedRemaining;
+        remainingByPeriod[i]       += v;
+        remainingFixedByPeriod[i]  += v;
       }
     });
   }
 
+  // Remaining effort — exact from msdyn_plannedwork slots
+  if (plannedWork && plannedWork.length > 0 && unitRate > 0) {
+    plannedWork.forEach(slot => {
+      const slotKey = periodKey(slot.start, granularity);
+      const idx     = periods.findIndex(p => p.isoKey === slotKey);
+      if (idx !== -1) {
+        const v = slot.hours * unitRate;
+        remainingByPeriod[idx]       += v;
+        remainingEffortByPeriod[idx] += v;
+      }
+    });
+  } else {
+    // Fallback: proportional remaining effort
+    const effortRemaining = Math.max(0, (planned - fixedCost) - (task.actualCost ?? 0));
+    if (effortRemaining > 0) {
+      periods.forEach((_, i) => {
+        const { from, to } = bounds[i];
+        const pFrom = Math.max(start.getTime(), from.getTime());
+        const pTo   = Math.min(end.getTime(),   to.getTime());
+        if (pFrom <= pTo) {
+          const v = ((pTo - pFrom) / taskSpan) * effortRemaining;
+          remainingByPeriod[i]       += v;
+          remainingEffortByPeriod[i] += v;
+        }
+      });
+    }
+  }
+
   return {
     plannedByPeriod, plannedEffortByPeriod, plannedFixedByPeriod,
-    actualByPeriod,  actualEffortByPeriod,  actualFixedByPeriod,
+    remainingByPeriod, remainingEffortByPeriod, remainingFixedByPeriod,
   };
 }
 
@@ -302,7 +323,7 @@ export function FinancialTimeline({
 }: Props) {
   const [granularity, setGranularity]         = React.useState<Granularity>("monthly");
   const [visibleRows, setVisibleRows]         = React.useState<Set<RowKey>>(new Set(DEFAULT_VISIBLE_ROWS));
-  const [height, setHeight]                   = React.useState(260);
+  const [height, setHeight]                   = React.useState(160);
   const [plannedExpanded, setPlannedExpanded]     = React.useState(false);
   const [actualExpanded, setActualExpanded]       = React.useState(false);
   const [remainingExpanded, setRemainingExpanded] = React.useState(false);
@@ -417,48 +438,44 @@ export function FinancialTimeline({
     const pp  = new Array(periods.length).fill(0); // planned total
     const pe  = new Array(periods.length).fill(0); // planned effort
     const pf  = new Array(periods.length).fill(0); // planned fixed
-    const pa  = new Array(periods.length).fill(0); // actual total
-    const ae  = new Array(periods.length).fill(0); // actual effort
-    const af  = new Array(periods.length).fill(0); // actual fixed
+    const rr  = new Array(periods.length).fill(0); // remaining total
+    const re  = new Array(periods.length).fill(0); // remaining effort
+    const rf  = new Array(periods.length).fill(0); // remaining fixed
+
+    // Total actual is a single scalar — no time distribution
+    let totalActual = 0;
 
     leaves.forEach(task => {
       const assignment = assignments.get(task.recordId) ?? null;
-      // Get working days for this task's resources — use first resource's calendar
       const r = distributeCost(task, periods, granularity, assignment);
-      r.plannedByPeriod.forEach((v, i)       => { pp[i] += v; });
-      r.plannedEffortByPeriod.forEach((v, i) => { pe[i] += v; });
-      r.plannedFixedByPeriod.forEach((v, i)  => { pf[i] += v; });
-      r.actualByPeriod.forEach((v, i)        => { pa[i] += v; });
-      r.actualEffortByPeriod.forEach((v, i)  => { ae[i] += v; });
-      r.actualFixedByPeriod.forEach((v, i)   => { af[i] += v; });
+      r.plannedByPeriod.forEach((v, i)         => { pp[i] += v; });
+      r.plannedEffortByPeriod.forEach((v, i)   => { pe[i] += v; });
+      r.plannedFixedByPeriod.forEach((v, i)    => { pf[i] += v; });
+      r.remainingByPeriod.forEach((v, i)       => { rr[i] += v; });
+      r.remainingEffortByPeriod.forEach((v, i) => { re[i] += v; });
+      r.remainingFixedByPeriod.forEach((v, i)  => { rf[i] += v; });
+      totalActual += task.totalActualCost ?? 0;
     });
 
-    return { pp, pe, pf, pa, ae, af };
+    return { pp, pe, pf, rr, re, rf, totalActual };
   }, [leaves, periods, granularity, assignments]);
 
   // ── Derived totals ────────────────────────────────────────────────────────
   const totals = React.useMemo(() => {
-    const totalPlanned        = agg.pp.reduce((s, v) => s + v, 0);
-    const totalActual         = agg.pa.reduce((s, v) => s + v, 0);
-    const totalPlannedEffort  = agg.pe.reduce((s, v) => s + v, 0);
-    const totalPlannedFixed   = agg.pf.reduce((s, v) => s + v, 0);
-    const totalActualEffort   = agg.ae.reduce((s, v) => s + v, 0);
-    const totalActualFixed    = agg.af.reduce((s, v) => s + v, 0);
-    const totalRemaining      = totalPlanned - totalActual;
-    const totalRemEffort      = totalPlannedEffort - totalActualEffort;
-    const totalRemFixed       = totalPlannedFixed  - totalActualFixed;
-    let cumP = 0, cumA = 0;
-    const cumPlanned  = agg.pp.map(v => { cumP += v; return cumP; });
-    const cumActual   = agg.pa.map(v => { cumA += v; return cumA; });
-    const remaining   = agg.pp.map((v, i) => v - agg.pa[i]);
-    const remEffort   = agg.pe.map((v, i) => v - agg.ae[i]);
-    const remFixed    = agg.pf.map((v, i) => v - agg.af[i]);
+    const totalPlanned       = leaves.reduce((s, t) => s + (t.totalPlannedCost ?? 0), 0);
+    const totalActual        = agg.totalActual;
+    const totalRemaining     = agg.rr.reduce((s, v) => s + v, 0);
+    const totalPlannedEffort = agg.pe.reduce((s, v) => s + v, 0);
+    const totalPlannedFixed  = agg.pf.reduce((s, v) => s + v, 0);
+    const totalRemEffort     = agg.re.reduce((s, v) => s + v, 0);
+    const totalRemFixed      = agg.rf.reduce((s, v) => s + v, 0);
+    let cumP = 0;
+    const cumPlanned = agg.pp.map(v => { cumP += v; return cumP; });
     return {
       totalPlanned, totalActual, totalRemaining,
       totalPlannedEffort, totalPlannedFixed,
-      totalActualEffort, totalActualFixed,
       totalRemEffort, totalRemFixed,
-      cumPlanned, cumActual, remaining, remEffort, remFixed,
+      cumPlanned,
     };
   }, [agg]);
 
@@ -553,20 +570,9 @@ export function FinancialTimeline({
         flexShrink: 0, background: C.panelBg,
       }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: C.actual, marginRight: 4 }}>
-          📅 Financial Timeline
+          📅 Financial Plan
         </span>
 
-        {!loadingAssignments && (
-          <span style={{
-            fontSize: 11, fontWeight: 600,
-            color:      exactCount > 0 ? C.actual : "#9A9A9A",
-            background: exactCount > 0 ? C.nowBg  : "#F5F5F5",
-            border:     `1px solid ${exactCount > 0 ? C.remaining : "#D4D4D4"}`,
-            borderRadius: 10, padding: "1px 7px",
-          }}>
-            {exactCount > 0 ? `⚡ ${exactCount} exact` : "~ proportional"}
-          </span>
-        )}
         {loadingAssignments && <span style={{ fontSize: 11, color: "#9A9A9A" }}>loading…</span>}
 
         {hasActiveFilters && (
@@ -617,9 +623,23 @@ export function FinancialTimeline({
         ))}
 
         <div style={{ flex: 1 }} />
+
+        {/* Total Planned KPI — right side of header */}
+        <div style={{
+          display: "flex", flexDirection: "column", alignItems: "flex-end",
+          marginRight: 16,
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 400, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Total Planned
+          </span>
+          <span style={{ fontSize: 18, fontWeight: 800, color: C.planned, lineHeight: 1.2 }}>
+            {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(totals.totalPlanned))}
+          </span>
+        </div>
+
         <button onClick={onClose} style={{
           background: "none", border: "none", cursor: "pointer",
-          color: C.remaining, fontSize: 16, lineHeight: 1, padding: 2,
+          color: "#6b7280", fontSize: 16, lineHeight: 1, padding: 2,
         }}>✕</button>
       </div>
 
@@ -645,10 +665,19 @@ export function FinancialTimeline({
                   borderRight:  `2px solid ${C.headerBorder}`,
                   minWidth: 180, whiteSpace: "nowrap",
                 }} />
+                {/* Actual column — fixed, before period columns */}
+                <th style={{
+                  padding: "7px 12px", fontWeight: 600, fontSize: 14,
+                  color: C.actual, textAlign: "right",
+                  borderBottom: `2px solid ${C.headerBorder}`,
+                  borderRight:  `2px solid ${C.headerBorder}`,
+                  whiteSpace: "nowrap", background: "#f0fdfa",
+                  minWidth: 110,
+                }}>Actual</th>
                 {periods.map(p => (
                   <th key={p.isoKey} style={{
                     padding: "7px 12px", fontWeight: 600, fontSize: 14,
-                    color:        p.isToday ? C.nowText : p.isPast ? C.cumActual : C.actual,
+                    color:        p.isToday ? C.nowText : p.isPast ? "#9ca3af" : "#374151",
                     textAlign:    "right",
                     borderBottom: `2px solid ${C.headerBorder}`,
                     borderRight:  `1px solid ${C.rowDivider}`,
@@ -676,100 +705,34 @@ export function FinancialTimeline({
               </tr>
             </thead>
 
-            <tbody>
+              <tbody>
 
-              {/* ── PLANNED ─────────────────────────────────────────────── */}
-              {visibleRows.has("planned") && (
-                <React.Fragment>
-                  <tr>
-                    <td style={{ ...rowLabelStyle(C.planned), cursor: "pointer" }}
-                      onClick={() => setPlannedExpanded(x => !x)}>
-                      <span style={{ marginRight: 6, fontSize: 10 }}>{plannedExpanded ? "▼" : "▶"}</span>
-                      Planned
-                    </td>
-                    {agg.pp.map((v, i) => (
-                      <td key={i} style={cellStyle(v, false, periods[i].isToday, C.actual)}>
-                        {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                      </td>
-                    ))}
-                    <td style={totalCellStyle(totals.totalPlanned, false, C.planned)}>
-                      {fmtCurrency(Math.round(totals.totalPlanned))}
-                    </td>
-                  </tr>
-                  {plannedExpanded && (
-                    <React.Fragment>
-                      <tr>
-                        <td style={subLabelStyle(C.planned)}>↳ Effort cost</td>
-                        {agg.pe.map((v, i) => (
-                          <td key={i} style={subCellStyle(v, false, periods[i].isToday, C.planned)}>
-                            {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                          </td>
-                        ))}
-                        <td style={subTotalStyle(totals.totalPlannedEffort, false, C.planned)}>
-                          {fmtCurrency(Math.round(totals.totalPlannedEffort))}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style={subLabelStyle(C.remaining)}>↳ Fixed cost</td>
-                        {agg.pf.map((v, i) => (
-                          <td key={i} style={subCellStyle(v, false, periods[i].isToday, C.remaining)}>
-                            {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                          </td>
-                        ))}
-                        <td style={subTotalStyle(totals.totalPlannedFixed, false, C.remaining)}>
-                          {fmtCurrency(Math.round(totals.totalPlannedFixed))}
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  )}
-                </React.Fragment>
-              )}
-
-              {/* ── ACTUAL ──────────────────────────────────────────────── */}
+              {/* ── ACTUAL — actual column shows value, period columns empty */}
               {visibleRows.has("actual") && (
-                <React.Fragment>
-                  <tr>
-                    <td style={{ ...rowLabelStyle(C.actual), cursor: "pointer" }}
-                      onClick={() => setActualExpanded(x => !x)}>
-                      <span style={{ marginRight: 6, fontSize: 10 }}>{actualExpanded ? "▼" : "▶"}</span>
-                      Actual
-                    </td>
-                    {agg.pa.map((v, i) => (
-                      <td key={i} style={cellStyle(v, false, periods[i].isToday, C.actual)}>
-                        {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                      </td>
-                    ))}
-                    <td style={totalCellStyle(totals.totalActual, false, C.actual)}>
-                      {fmtCurrency(Math.round(totals.totalActual))}
-                    </td>
-                  </tr>
-                  {actualExpanded && (
-                    <React.Fragment>
-                      <tr>
-                        <td style={subLabelStyle(C.actual)}>↳ Effort cost</td>
-                        {agg.ae.map((v, i) => (
-                          <td key={i} style={subCellStyle(v, false, periods[i].isToday, C.actual)}>
-                            {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                          </td>
-                        ))}
-                        <td style={subTotalStyle(totals.totalActualEffort, false, C.actual)}>
-                          {fmtCurrency(Math.round(totals.totalActualEffort))}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style={subLabelStyle(C.remaining)}>↳ Fixed cost</td>
-                        {agg.af.map((v, i) => (
-                          <td key={i} style={subCellStyle(v, false, periods[i].isToday, C.remaining)}>
-                            {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                          </td>
-                        ))}
-                        <td style={subTotalStyle(totals.totalActualFixed, false, C.remaining)}>
-                          {fmtCurrency(Math.round(totals.totalActualFixed))}
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  )}
-                </React.Fragment>
+                <tr>
+                  <td style={rowLabelStyle(C.actual)}>Actual (to date)</td>
+                  {/* Actual column — shows the value */}
+                  <td style={{
+                    textAlign: "right", padding: "6px 12px", fontSize: 14, fontWeight: 400,
+                    color: C.actual, background: "#f0fdfa",
+                    borderRight: `2px solid ${C.headerBorder}`,
+                    borderBottom: `1px solid ${C.rowDivider}`,
+                    whiteSpace: "nowrap",
+                  }}>
+                    {fmtCurrency(Math.round(totals.totalActual))}
+                  </td>
+                  {/* Period columns — empty */}
+                  {periods.map((_, i) => (
+                    <td key={i} style={{
+                      borderRight: `1px solid ${C.rowDivider}`,
+                      borderBottom: `1px solid ${C.rowDivider}`,
+                      background: periods[i].isToday ? C.nowBg : "transparent",
+                    }} />
+                  ))}
+                  <td style={totalCellStyle(totals.totalActual, false, C.actual)}>
+                    {fmtCurrency(Math.round(totals.totalActual))}
+                  </td>
+                </tr>
               )}
 
               {/* ── REMAINING ───────────────────────────────────────────── */}
@@ -779,14 +742,16 @@ export function FinancialTimeline({
                     <td style={{ ...rowLabelStyle(C.remaining), cursor: "pointer" }}
                       onClick={() => setRemainingExpanded(x => !x)}>
                       <span style={{ marginRight: 6, fontSize: 10 }}>{remainingExpanded ? "▼" : "▶"}</span>
-                      Remaining
+                      Remaining (expected)
                     </td>
-                    {totals.remaining.map((v, i) => (
-                      <td key={i} style={cellStyle(v, true, periods[i].isToday)}>
-                        {Math.abs(v) > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
+                    {/* Actual column — empty for Remaining row */}
+                    <td style={{ borderRight: `2px solid ${C.headerBorder}`, borderBottom: `1px solid ${C.rowDivider}`, background: "#f0fdfa" }} />
+                    {agg.rr.map((v, i) => (
+                      <td key={i} style={cellStyle(v, false, periods[i].isToday, C.remaining)}>
+                        {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
                       </td>
                     ))}
-                    <td style={totalCellStyle(totals.totalRemaining, true, C.remaining)}>
+                    <td style={totalCellStyle(totals.totalRemaining, false, C.remaining)}>
                       {fmtCurrency(Math.round(totals.totalRemaining))}
                     </td>
                   </tr>
@@ -794,23 +759,25 @@ export function FinancialTimeline({
                     <React.Fragment>
                       <tr>
                         <td style={subLabelStyle(C.planned)}>↳ Effort remaining</td>
-                        {totals.remEffort.map((v, i) => (
-                          <td key={i} style={subCellStyle(v, true, periods[i].isToday, C.planned)}>
-                            {Math.abs(v) > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
+                        <td style={{ borderRight: `2px solid ${C.headerBorder}`, borderBottom: `1px solid ${C.rowDivider}`, background: "#f0fdfa" }} />
+                        {agg.re.map((v, i) => (
+                          <td key={i} style={subCellStyle(v, false, periods[i].isToday, C.planned)}>
+                            {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
                           </td>
                         ))}
-                        <td style={subTotalStyle(totals.totalRemEffort, true, C.planned)}>
+                        <td style={subTotalStyle(totals.totalRemEffort, false, C.planned)}>
                           {fmtCurrency(Math.round(totals.totalRemEffort))}
                         </td>
                       </tr>
                       <tr>
                         <td style={subLabelStyle(C.remaining)}>↳ Fixed remaining</td>
-                        {totals.remFixed.map((v, i) => (
-                          <td key={i} style={subCellStyle(v, true, periods[i].isToday, C.remaining)}>
-                            {Math.abs(v) > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
+                        <td style={{ borderRight: `2px solid ${C.headerBorder}`, borderBottom: `1px solid ${C.rowDivider}`, background: "#f0fdfa" }} />
+                        {agg.rf.map((v, i) => (
+                          <td key={i} style={subCellStyle(v, false, periods[i].isToday, C.remaining)}>
+                            {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
                           </td>
                         ))}
-                        <td style={subTotalStyle(totals.totalRemFixed, true, C.remaining)}>
+                        <td style={subTotalStyle(totals.totalRemFixed, false, C.remaining)}>
                           {fmtCurrency(Math.round(totals.totalRemFixed))}
                         </td>
                       </tr>
@@ -821,9 +788,9 @@ export function FinancialTimeline({
 
               {/* ── Separator ───────────────────────────────────────────── */}
               {(visibleRows.has("planned") || visibleRows.has("actual") || visibleRows.has("remaining")) &&
-               (visibleRows.has("cumPlanned") || visibleRows.has("cumActual")) && (
+               visibleRows.has("cumPlanned") && (
                 <tr>
-                  <td colSpan={periods.length + 2}
+                  <td colSpan={periods.length + 3}
                     style={{ height: 2, background: C.sepLine, padding: 0 }} />
                 </tr>
               )}
@@ -832,6 +799,7 @@ export function FinancialTimeline({
               {visibleRows.has("cumPlanned") && (
                 <tr>
                   <td style={rowLabelStyle(C.cumPlanned, true)}>Cumulative Planned</td>
+                  <td style={{ borderRight: `2px solid ${C.headerBorder}`, borderBottom: `1px solid ${C.rowDivider}`, background: "#f0fdfa" }} />
                   {totals.cumPlanned.map((v, i) => (
                     <td key={i} style={{
                       ...cellStyle(v, false, periods[i].isToday, C.cumPlanned),
@@ -842,24 +810,6 @@ export function FinancialTimeline({
                   ))}
                   <td style={{ ...totalCellStyle(totals.totalPlanned, false, C.cumPlanned), fontStyle: "italic" }}>
                     {fmtCurrency(Math.round(totals.totalPlanned))}
-                  </td>
-                </tr>
-              )}
-
-              {/* ── CUMULATIVE ACTUAL ───────────────────────────────────── */}
-              {visibleRows.has("cumActual") && (
-                <tr>
-                  <td style={rowLabelStyle(C.cumActual, true)}>Cumulative Actual</td>
-                  {totals.cumActual.map((v, i) => (
-                    <td key={i} style={{
-                      ...cellStyle(v, false, periods[i].isToday, C.cumActual),
-                      fontStyle: "italic", fontWeight: 500,
-                    }}>
-                      {v > 0.5 ? fmtCurrency(Math.round(v)) : "—"}
-                    </td>
-                  ))}
-                  <td style={{ ...totalCellStyle(totals.totalActual, false, C.cumActual), fontStyle: "italic" }}>
-                    {fmtCurrency(Math.round(totals.totalActual))}
                   </td>
                 </tr>
               )}
