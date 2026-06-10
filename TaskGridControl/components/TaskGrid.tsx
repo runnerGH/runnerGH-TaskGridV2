@@ -39,25 +39,27 @@ const FUNDING_SOURCES = [
 ];
 
 const ALL_COLUMNS = [
+  // Schedule — in grid order
   { id: "startDate",        label: "Start",              group: "schedule" },
   { id: "endDate",          label: "Finish",             group: "schedule" },
   { id: "pctDone",          label: "% Complete",         group: "schedule" },
   { id: "assignedTo",       label: "Assigned to",        group: "schedule" },
-  { id: "quantity",         label: "Effort (h)",         group: "cost" },
-  { id: "effortCompleted",  label: "Completed (h)",      group: "cost" },
-  { id: "unitRate",         label: "Unit rate",          group: "cost" },
-  { id: "totalPlannedCost", label: "Total planned",      group: "cost" },
+  // Cost — in grid order matching DEFAULT_ORDER
+  { id: "costCategory",     label: "Cost category",      group: "cost" },
+  { id: "fundingSource",    label: "Funding source",     group: "cost" },
   { id: "srcServiceName",   label: "Service",            group: "cost" },
   { id: "unit",             label: "Unit",               group: "cost" },
+  { id: "unitRate",         label: "Unit rate",          group: "cost" },
+  { id: "quantity",         label: "Effort (h)",         group: "cost" },
+  { id: "effortCompleted",  label: "Completed (h)",      group: "cost" },
   { id: "plannedCost",      label: "Planned cost",       group: "cost" },
   { id: "fixedCost",        label: "Fixed cost",         group: "cost" },
+  { id: "totalPlannedCost", label: "Total planned",      group: "cost" },
   { id: "actualCost",       label: "Actual effort cost", group: "cost" },
   { id: "actualFixedCost",  label: "Actual fixed cost",  group: "cost" },
   { id: "totalActualCost",  label: "Total actual cost",  group: "cost" },
   { id: "remainingCost",    label: "Remaining",          group: "cost" },
   { id: "earnedValue",      label: "Earned value",       group: "cost" },
-  { id: "fundingSource",    label: "Funding source",     group: "cost" },
-  { id: "costCategory",     label: "Cost category",      group: "cost" },
 ] as const;
 
 const DEFAULT_VISIBLE = new Set([
@@ -440,7 +442,10 @@ function SummaryPanel({ data, onClose, latestApprovedBudget }: { data: TaskNode[
   const consumptionRate = (weightedPct > 0 && totalPlanned > 0)
     ? (totalActual / totalPlanned) / (weightedPct / 100)
     : null;
-  const kpi1Status = consumptionRate === null ? null
+  const kpi1Status = consumptionRate === null
+    ? (totalActual > 0
+        ? { label: "Spend Without Progress", color: "#d97706", bg: "#fffbeb" }
+        : null)
     : consumptionRate <= 1.10 ? { label: "On Track",         color: "#16a34a", bg: "#f0fdf4" }
     : consumptionRate <= 1.30 ? { label: "Overrun Risk",     color: "#d97706", bg: "#fffbeb" }
     :                           { label: "High Overrun Risk", color: "#dc2626", bg: "#fef2f2" };
@@ -547,10 +552,19 @@ if (catLeaves.length === 0) return;
         const fixedSum = rateTasks.reduce((s, n) => s + (n.fixedCost ?? 0), 0);
         const total    = rateTasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
         // If no effort hours but has fixed cost, show qty=1, unitCost=total
-        const displayQty      = qty === 0 && fixedSum > 0 ? 1     : qty;
-        const displayUnitCost = qty === 0 && fixedSum > 0 ? total  : unitRate;
-        const remarks  = rateTasks.map(n => n.taskName).filter(Boolean).join(", ");
-        pidRows.push({ category: cat.label, qty: displayQty, unitCost: displayUnitCost, totalCost: total, funding, remarks });
+        const displayQty      = qty === 0 && fixedSum > 0 ? 1 : qty;
+        const displayUnitCost = qty === 0 && fixedSum > 0 ? total : unitRate;
+        const remarks = rateTasks.map(n => n.taskName).filter(Boolean).join(", ");
+        // If there are both effort hours and fixed costs, split into two rows
+        if (qty > 0 && fixedSum > 0) {
+          const effortTotal   = qty * unitRate;
+          const fixedRemarks  = rateTasks.filter(n => (n.fixedCost ?? 0) > 0).map(n => n.taskName).filter(Boolean).join(", ");
+          const effortRemarks = rateTasks.filter(n => (n.quantity ?? 0) > 0).map(n => n.taskName).filter(Boolean).join(", ");
+          pidRows.push({ category: cat.label, qty, unitCost: unitRate, totalCost: effortTotal, funding, remarks: effortRemarks });
+          pidRows.push({ category: cat.label, qty: 1, unitCost: fixedSum, totalCost: fixedSum, funding, remarks: fixedRemarks + " (fixed cost)" });
+        } else {
+          pidRows.push({ category: cat.label, qty: displayQty, unitCost: displayUnitCost, totalCost: total, funding, remarks });
+        }
       });
     });
   });
@@ -578,10 +592,18 @@ if (catLeaves.length === 0) return;
         const qty        = rateTasks.reduce((s, n) => s + (n.quantity ?? 0), 0);
         const fixedSum   = rateTasks.reduce((s, n) => s + (n.fixedCost ?? 0), 0);
         const total      = rateTasks.reduce((s, n) => s + (n.totalPlannedCost ?? 0), 0);
-        const displayQty      = qty === 0 && fixedSum > 0 ? 1     : qty;
+        const displayQty      = qty === 0 && fixedSum > 0 ? 1 : qty;
         const displayUnitCost = qty === 0 && fixedSum > 0 ? total : unitRate;
         const remarks    = rateTasks.map(n => n.taskName).filter(Boolean).join(", ");
-        pidRows.push({ category: "Unassigned", qty: displayQty, unitCost: displayUnitCost, totalCost: total, funding, remarks });
+        if (qty > 0 && fixedSum > 0) {
+          const effortTotal   = qty * unitRate;
+          const fixedRemarks  = rateTasks.filter(n => (n.fixedCost ?? 0) > 0).map(n => n.taskName).filter(Boolean).join(", ");
+          const effortRemarks = rateTasks.filter(n => (n.quantity ?? 0) > 0).map(n => n.taskName).filter(Boolean).join(", ");
+          pidRows.push({ category: "Unassigned", qty, unitCost: unitRate, totalCost: effortTotal, funding, remarks: effortRemarks });
+          pidRows.push({ category: "Unassigned", qty: 1, unitCost: fixedSum, totalCost: fixedSum, funding, remarks: fixedRemarks + " (fixed cost)" });
+        } else {
+          pidRows.push({ category: "Unassigned", qty: displayQty, unitCost: displayUnitCost, totalCost: total, funding, remarks });
+        }
       });
     });
   }
@@ -793,12 +815,12 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
         <button className="tg-summary-close" onClick={onClose}>✕</button>
       </div>
 
-      {/* ── Row 1: KPI cards — full width, side by side ─────────── */}
-      <div style={{ display: "flex", gap: 14, padding: "16px 18px 0" }}>
+      {/* ── Row 1: KPI cards ─────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 12, padding: "14px 18px 0" }}>
 
         {/* KPI 1 — Budget Remaining Status */}
-        <div style={{ background: kpi2Status.bg, border: `2px solid ${kpi2Status.color}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-          <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em", display: "flex", alignItems: "center" }}>
+        <div style={{ background: "white", border: `2px solid ${kpi2Status.color}`, borderRadius: 8, padding: "12px 16px", flex: 1 }}>
+          <div style={{ fontSize: 13, color: "#374151", fontWeight: 700, display: "flex", alignItems: "center" }}>
             Budget Remaining Status
             <InfoPopover
               title="Budget Remaining Status"
@@ -807,21 +829,18 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
               thresholds="🟢 > 15% = High Balance Available · 🟡 5–15% = Low Balance Available · 🔴 < 5% = Critical Balance"
             />
           </div>
-          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi2Status.color, flexShrink: 0 }}/>
-            <span style={{ fontSize: 20, fontWeight: 800, color: kpi2Status.color }}>{kpi2Status.label}</span>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: kpi2Status.color, flexShrink: 0 }}/>
+            <span style={{ fontSize: 16, fontWeight: 700, color: kpi2Status.color }}>{kpi2Status.label}</span>
           </div>
-          <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
-            {availablePct.toFixed(1)}% remaining
-          </div>
-          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
-            {">"}15% sufficient · 5–15% low · {"<"}5% overrun
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+            {availablePct.toFixed(1)}% remaining · {">"}15% sufficient · 5–15% low · {"<"}5% critical
           </div>
         </div>
 
         {/* KPI 2 — Consumption Rate */}
-        <div style={{ background: kpi1Status?.bg ?? "#f9fafb", border: `2px solid ${kpi1Status?.color ?? "#e5e7eb"}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-          <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, letterSpacing: "0.01em", display: "flex", alignItems: "center" }}>
+        <div style={{ background: "white", border: `2px solid ${kpi1Status?.color ?? "#e5e7eb"}`, borderRadius: 8, padding: "12px 16px", flex: 1 }}>
+          <div style={{ fontSize: 13, color: "#374151", fontWeight: 700, display: "flex", alignItems: "center" }}>
             Consumption Rate
             <InfoPopover
               title="Consumption Rate"
@@ -830,23 +849,20 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
               thresholds="🟢 ≤ 1.10 = On Track · 🟡 ≤ 1.30 = At Risk · 🔴 > 1.30 = High Risk"
             />
           </div>
-          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 22, height: 22, borderRadius: "50%", background: kpi1Status?.color ?? "#9ca3af", flexShrink: 0 }}/>
-            <span style={{ fontSize: 20, fontWeight: 800, color: kpi1Status?.color ?? "#374151" }}>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: kpi1Status?.color ?? "#9ca3af", flexShrink: 0 }}/>
+            <span style={{ fontSize: 16, fontWeight: 700, color: kpi1Status?.color ?? "#374151" }}>
               {kpi1Status?.label ?? "N/A"}
             </span>
           </div>
-          <div style={{ fontSize: 14, color: "#111827", marginTop: 10, fontWeight: 600 }}>
-            Progress: {weightedPct.toFixed(1)}% complete
-          </div>
-          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 5 }}>
-            Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} (≤1.10 on track)
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+            Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} · % Spent: {totalPlanned > 0 ? ((totalActual / totalPlanned) * 100).toFixed(1) : "0.0"}% vs % Complete: {weightedPct.toFixed(1)}%
           </div>
         </div>
 
         {/* KPI 3 — Needs PCR */}
-        <div style={{ background: pcrStatus.bg, border: `2px solid ${pcrStatus.color}`, borderRadius: 10, padding: "18px 20px", flex: 1 }}>
-          <div style={{ fontSize: 15, color: "#111827", fontWeight: 800, display: "flex", alignItems: "center" }}>
+        <div style={{ background: "white", border: `2px solid ${pcrStatus.color}`, borderRadius: 8, padding: "12px 16px", flex: 1 }}>
+          <div style={{ fontSize: 13, color: "#374151", fontWeight: 700, display: "flex", alignItems: "center" }}>
             Needs PCR?
             <InfoPopover
               title="Needs PCR?"
@@ -855,52 +871,36 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
               thresholds="🟢 0–10% = Within Budget · 🟡 >10–25% = PCR → Project Board · 🔴 >25% = PCR → Approving Authority"
             />
           </div>
-          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 22, height: 22, borderRadius: "50%", background: pcrStatus.color, flexShrink: 0 }}/>
+          <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: pcrStatus.color, flexShrink: 0 }}/>
             <div>
-              <span style={{ fontSize: 20, fontWeight: 800, color: pcrStatus.color }}>{pcrStatus.label}</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: pcrStatus.color }}>{pcrStatus.label}</span>
               {pcrStatus.approver && (
-                <div style={{ fontSize: 12, fontWeight: 700, color: pcrStatus.color, marginTop: 2 }}>
-                  → Submit to {pcrStatus.approver}
-                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, color: pcrStatus.color, marginLeft: 6 }}>
+                  → {pcrStatus.approver}
+                </span>
               )}
             </div>
           </div>
           {!pcrStatus.notSet && (
-            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              <div>
-                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Approved Budget</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(latestApprovedBudget)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Planned</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827", marginTop: 2 }}>{fmtCurrency(totalPlanned)}</div>
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <div style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Variance</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: pcrStatus.color, marginTop: 2 }}>
-                  {fmtCurrency(totalPlanned - latestApprovedBudget)} ({pcrOverrun !== null ? (pcrOverrun * 100).toFixed(1) : "0.0"}%)
-                </div>
-              </div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6, display: "flex", gap: 12 }}>
+              <span>Approved: <strong style={{ color: "#111827" }}>{fmtCurrency(latestApprovedBudget)}</strong></span>
+              <span>Planned: <strong style={{ color: "#111827" }}>{fmtCurrency(totalPlanned)}</strong></span>
+              <span style={{ color: pcrStatus.color, fontWeight: 700 }}>
+                {fmtCurrency(totalPlanned - latestApprovedBudget)} ({pcrOverrun !== null ? (pcrOverrun * 100).toFixed(1) : "0.0"}%)
+              </span>
             </div>
           )}
           {pcrStatus.notSet && (
-            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
-              No approved budget set yet. Once the project budget is approved and recorded, this KPI will show whether a Project Change Request is needed.
-            </div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>No approved budget set yet.</div>
           )}
         </div>
       </div>
 
-      {/* ── Row 2: Gauge + Value Cards + EVM Metrics ─────────────── */}
+      {/* ── Row 2: Metric cards ───────────────────────────────────── */}
       {(() => {
-        const cpi = totalActual > 0 ? totalEV / totalActual : null;
-        const eac = cpi && cpi > 0 ? totalPlanned / cpi : null;
+        const eac = consumptionRate && consumptionRate > 0 ? totalPlanned / consumptionRate : null;
         const etc = totalPlanned - totalEV;
-        const cpiColor = cpi === null ? "#6b7280"
-          : cpi >= 0.95 ? "#16a34a"
-          : cpi >= 0.80 ? "#d97706"
-          : "#dc2626";
         const eacColor = eac === null ? "#6b7280"
           : eac <= totalPlanned ? "#16a34a"
           : eac <= totalPlanned * 1.10 ? "#d97706"
@@ -908,91 +908,72 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
         const etcColor = etc <= totalRemaining ? "#16a34a"
           : etc <= totalRemaining * 1.10 ? "#d97706"
           : "#dc2626";
-        return (
-          <div style={{ display: "flex", gap: 14, padding: "14px 18px 0", alignItems: "stretch" }}>
 
-            {/* Gauge */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: "0 0 300px", background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 8px 12px" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 4 }}>Budget Consumption (% Spent)</div>
-              <BigGauge />
+        function MetricCard({ label, value, sub, color, border, info }: {
+          label: string; value: string; sub?: string;
+          color: string; border?: string;
+          info?: { title: string; explanation: string; formula: string; thresholds: string };
+        }) {
+          return (
+            <div style={{
+              background: "white", border: `1px solid ${border ?? "#e5e7eb"}`,
+              borderRadius: 8, padding: "12px 16px", flex: 1,
+              display: "flex", flexDirection: "column", justifyContent: "space-between",
+              minWidth: 0,
+            }}>
+              <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
+                {label}
+                {info && <InfoPopover title={info.title} explanation={info.explanation} formula={info.formula} thresholds={info.thresholds} />}
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color, marginTop: 8 }}>{value}</div>
+              {sub && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>{sub}</div>}
             </div>
+          );
+        }
 
-            {/* Value cards + EVM metrics stacked */}
-            <div style={{ display: "flex", flex: 1, gap: 14 }}>
-
-              {/* Total Budget */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Budget</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: "#111827", marginTop: 6 }}>{fmtCurrency(totalPlanned)}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{weightedPct.toFixed(1)}% complete</div>
-                </div>
-                <div style={{ background: "white", border: `1px solid ${eacColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
-                    EAC — Forecast Final Cost
-                    <InfoPopover
-                      title="EAC — Estimate at Completion"
-                      explanation="Forecasted total cost if current spending efficiency continues."
-                      formula="EAC = Total Budget ÷ CPI"
-                      thresholds="🟢 ≤ Budget = On track · 🟡 ≤ +10% = Slight overrun · 🔴 > +10% = Overrun"
-                    />
-                  </div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: eacColor, marginTop: 6 }}>{eac !== null ? fmtCurrency(eac) : "—"}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                    {eac !== null ? `${eac <= totalPlanned ? "Under" : "Over"} budget by ${fmtCurrency(Math.abs(eac - totalPlanned))}` : "No spend yet"}
-                  </div>
-                </div>
-              </div>
-
-              {/* Spent */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Spent</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: "#0f766e", marginTop: 6 }}>{fmtCurrency(totalActual)}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>EV: {fmtCurrency(totalEV)}</div>
-                </div>
-                <div style={{ background: "white", border: `1px solid ${cpiColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
-                    CPI — Cost Performance
-                    <InfoPopover
-                      title="CPI — Cost Performance Index"
-                      explanation="For every $1 spent, how much work value was delivered? Unlike Consumption Rate (which compares spending pace to progress), CPI uses Earned Value — the monetary worth of work completed. CPI < 1.0 means you are paying more than the work is worth."
-                      formula="CPI = Earned Value (EV) ÷ Actual Cost"
-                      thresholds="🟢 ≥ 0.95 = On budget · 🟡 0.80–0.95 = At risk · 🔴 < 0.80 = Overrun"
-                    />
-                  </div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: cpiColor, marginTop: 6 }}>{cpi !== null ? cpi.toFixed(2) : "—"}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                    {cpi === null ? "No spend yet" : cpi >= 0.95 ? "On budget" : cpi >= 0.80 ? "Slight overrun" : "Significant overrun"}
-                    {cpi !== null ? ` · $1 spent = ${fmtCurrency(cpi)} value` : ""}
-                  </div>
-                </div>
-              </div>
-
-              {/* Available */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                <div style={{ background: "white", border: `2px solid ${gaugeColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Available</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: gaugeColor, marginTop: 6 }}>{fmtCurrency(totalRemaining)}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{availablePct.toFixed(1)}% of budget</div>
-                </div>
-                <div style={{ background: "white", border: `1px solid ${etcColor}`, borderRadius: 10, padding: "16px 20px", flex: 1, minHeight: 100, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 11, color: "#6b7280", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center" }}>
-                    ETC — Cost to Finish
-                    <InfoPopover
-                      title="ETC — Estimate to Complete"
-                      explanation="Money still needed to finish remaining work. If ETC > Available, you have a shortfall."
-                      formula="ETC = Total Budget − Earned Value (EV)"
-                      thresholds="🟢 ETC ≤ Available = Covered · 🔴 ETC > Available = Shortfall"
-                    />
-                  </div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: etcColor, marginTop: 6 }}>{fmtCurrency(etc)}</div>
-                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                    {etc <= totalRemaining ? "Covered by available budget" : `Shortfall of ${fmtCurrency(etc - totalRemaining)}`}
-                  </div>
-                </div>
-              </div>
-
+        return (
+          <div style={{ padding: "12px 18px 0" }}>
+            {/* Gauge — commented out, kept for future use */}
+            {/* <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: "0 0 260px", background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "12px 8px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#111827", marginBottom: 4 }}>Budget Consumption</div>
+              <BigGauge />
+            </div> */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <MetricCard
+                label="Total Budget"
+                value={fmtCurrency(totalPlanned)}
+                sub={`${weightedPct.toFixed(1)}% complete`}
+                color="#1e40af"
+              />
+              <MetricCard
+                label="Spent"
+                value={fmtCurrency(totalActual)}
+                sub={`EV: ${fmtCurrency(totalEV)}`}
+                color="#0f766e"
+              />
+              <MetricCard
+                label="Available"
+                value={fmtCurrency(totalRemaining)}
+                sub={`${availablePct.toFixed(1)}% of budget`}
+                color={gaugeColor}
+                border={gaugeColor}
+              />
+              <MetricCard
+                label="EAC — Forecast Cost"
+                value={eac !== null ? fmtCurrency(eac) : "—"}
+                sub={eac !== null ? `${eac <= totalPlanned ? "Under" : "Over"} budget by ${fmtCurrency(Math.abs(eac - totalPlanned))}` : "No spend yet"}
+                color={eacColor}
+                border={eacColor}
+                info={{ title: "EAC — Estimate at Completion", explanation: "Forecasted total cost if current spending rate continues.", formula: "EAC = Total Budget ÷ Consumption Rate", thresholds: "🟢 ≤ Budget = On track · 🟡 ≤ +10% = Slight overrun · 🔴 > +10% = Overrun" }}
+              />
+              <MetricCard
+                label="ETC — Cost to Finish"
+                value={fmtCurrency(etc)}
+                sub={etc <= totalRemaining ? "Covered by available budget" : `Shortfall of ${fmtCurrency(etc - totalRemaining)}`}
+                color={etcColor}
+                border={etcColor}
+                info={{ title: "ETC — Estimate to Complete", explanation: "Money still needed to finish remaining work. If ETC > Available, you have a shortfall.", formula: "ETC = Total Budget − Earned Value (EV)", thresholds: "🟢 ETC ≤ Available = Covered · 🔴 ETC > Available = Shortfall" }}
+              />
             </div>
           </div>
         );
@@ -1418,7 +1399,8 @@ const CSS = `
   .tg-avatar-name { font-size: 12px; color: #374151; white-space: nowrap; 
     overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
   .tg-summary-panel {
-    position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+    position: absolute; top: 0; left: 0; bottom: 0;
+    width: min(1100px, 100%);
     background: #f9fafb; z-index: 100;
     border-right: 1px solid #e5e7eb;
     box-shadow: 4px 0 16px rgba(0,0,0,0.10);
@@ -1933,10 +1915,10 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
   // Label + value layout helper
   function Field({ label, children }: { label: string; children: React.ReactNode }) {
     return (
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 8 }}>
         <div style={{
-          fontSize: 14, fontWeight: 600, color: "#1f2937",
-          letterSpacing: "0em", marginBottom: 6,
+          fontSize: 13, fontWeight: 600, color: "#1f2937",
+          letterSpacing: "0em", marginBottom: 4,
         }}>{label}</div>
         {children}
       </div>
@@ -1957,11 +1939,11 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
   function MetricCard({ label, value, color }: { label: string; value: string; color?: string }) {
     return (
       <div style={{
-        background: "white", border: "1px solid #e5e7eb", borderRadius: 8,
-        padding: "10px 14px", flex: 1,
+        background: "white", border: "1px solid #e5e7eb", borderRadius: 6,
+        padding: "7px 10px", flex: 1,
       }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#6b7280", letterSpacing: "0em" }}>{label}</div>
-        <div style={{ fontSize: 15, fontWeight: 700, color: color ?? "#111827", marginTop: 4 }}>{value}</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", letterSpacing: "0em" }}>{label}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: color ?? "#111827", marginTop: 3 }}>{value}</div>
       </div>
     );
   }
@@ -2027,7 +2009,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
             </div>
           </div>
 
-          <div style={{ height: 1, background: "#f3f4f6", margin: "0 0 16px" }} />
+          <div style={{ height: 1, background: "#f3f4f6", margin: "4px 0 16px" }} />
 
           {/* Editable fields */}
           <Field label="Funding Source">
@@ -2103,11 +2085,11 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
             </Field>
           </div>
 
-          <div style={{ height: 1, background: "#f3f4f6", margin: "4px 0 16px" }} />
+          <div style={{ height: 1, background: "#f3f4f6", margin: "4px 0 8px" }} />
 
           {/* Computed metrics */}
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", letterSpacing: "0em", marginBottom: 10 }}>Computed</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", letterSpacing: "0em", marginBottom: 6 }}>Computed</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
             <MetricCard label="Planned Cost"     value={fmtCurrency(current.totalPlannedCost ?? 0)} color="#4f46e5" />
             <MetricCard label="Actual Cost"      value={fmtCurrency(current.totalActualCost  ?? 0)} color="#0f766e" />
             <MetricCard label="Remaining"        value={fmtCurrency(current.remainingCost    ?? 0)} color={(current.remainingCost ?? 0) < 0 ? "#dc2626" : "#374151"} />
@@ -3178,17 +3160,7 @@ function toggleColumn(id: string) {
     {summaryOpen && <span className="tg-filter-badge">●</span>}
   </button>
   {/* Timeline button hidden — msdyn_plannedwork contains remaining work not planned work (Microsoft platform limitation) */}
-  <button className="tg-btn" onClick={() => setTimelineOpen(o => !o)}>
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-    <line x1="16" y1="2" x2="16" y2="6"/>
-    <line x1="8" y1="2" x2="8" y2="6"/>
-    <line x1="3" y1="10" x2="21" y2="10"/>
-  </svg>
-  Financial Plan
-  {timelineOpen && <span className="tg-filter-badge">●</span>}
-</button>
+  {/* Financial Plan button hidden temporarily */}
   <button className="tg-btn" onClick={() => setFilterOpen(o => !o)}>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
