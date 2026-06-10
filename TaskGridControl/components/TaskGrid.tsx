@@ -2246,7 +2246,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
 
   React.useEffect(() => {
     // Load Entities
-    fetch("/api/data/v9.2/pmo_entities?$select=pmo_entityid,pmo_name&$filter=statecode eq 0&$orderby=pmo_name asc")
+    fetch("/api/data/v9.2/pmo_entities?$select=pmo_entityid,pmo_name,pmo_acronym&$filter=statecode eq 0&$orderby=pmo_name asc")
       .then(r => {
         if (!r.ok) throw new Error(`Entity load failed: ${r.status} ${r.statusText}`);
         return r.json();
@@ -2254,7 +2254,7 @@ export function TaskGrid({ data: initialData, onSave, onRefresh, userId, taskIds
       .then(d => {
         const items: EntityItem[] = (d.value || []).map((r: any) => ({
           id:   r.pmo_entityid,
-          name: r.pmo_name,
+          name: r.pmo_acronym ?? r.pmo_name,
         }));
         setEntityItems(items);
       })
