@@ -315,7 +315,7 @@ function GaugeChart({ pct, color }: { pct: number; color: string }) {
         {Math.min(pct, 999).toFixed(1)}%
       </text>
       <text x={cx} y={cy} fontSize="11" fill="#6b7280"
-        textAnchor="middle" fontFamily="Segoe UI, sans-serif">spent</text>
+        textAnchor="middle" fontFamily="Segoe UI, sans-serif">Total Actuals</text>
     </svg>
   );
 }
@@ -800,7 +800,7 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
       <text x="8" y="172" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">0%</text>
       <text x="244" y="172" fontSize="13" fill="#6b7280" fontFamily="Segoe UI, sans-serif">100%</text>
       <text x={cx} y={cy - 50} fontSize="13" fill="#374151"
-        textAnchor="middle" fontFamily="Segoe UI, sans-serif" fontWeight="700">SPENT</text>
+        textAnchor="middle" fontFamily="Segoe UI, sans-serif" fontWeight="700">Total Actuals</text>
       <text x={cx} y={cy - 14} fontSize="36" fontWeight="800" fill={gaugeColor}
         textAnchor="middle" fontFamily="Segoe UI, sans-serif">
         {Math.min(pctConsumed, 999).toFixed(1)}%
@@ -825,7 +825,7 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
             <InfoPopover
               title="Budget Remaining Status"
               explanation="How much budget is still available to spend."
-              formula="Available = Total Planned − Total Spent"
+              formula="Remaining = Total Budget − Total Actuals"
               thresholds="🟢 > 15% = High Balance Available · 🟡 5–15% = Low Balance Available · 🔴 < 5% = Critical Balance"
             />
           </div>
@@ -845,7 +845,7 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
             <InfoPopover
               title="Consumption Rate"
               explanation="Are you spending at the right pace for the work completed? 1.0 = perfect balance."
-              formula="Rate = (Spent ÷ Budget) ÷ (% Complete ÷ 100)"
+              formula="Rate = (Total Actuals ÷ Budget) ÷ (% Complete ÷ 100)"
               thresholds="🟢 ≤ 1.10 = On Track · 🟡 ≤ 1.30 = At Risk · 🔴 > 1.30 = High Risk"
             />
           </div>
@@ -856,7 +856,7 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
             </span>
           </div>
           <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
-            Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} · % Spent: {totalPlanned > 0 ? ((totalActual / totalPlanned) * 100).toFixed(1) : "0.0"}% vs % Complete: {weightedPct.toFixed(1)}%
+            Rate: {consumptionRate !== null ? consumptionRate.toFixed(2) : "—"} · % Total Actuals: {totalPlanned > 0 ? ((totalActual / totalPlanned) * 100).toFixed(1) : "0.0"}% vs % Complete: {weightedPct.toFixed(1)}%
           </div>
         </div>
 
@@ -946,13 +946,13 @@ function GroupedHBarChart({ title, rows, totalPlanned, totalActual }: {
                 color="#1e40af"
               />
               <MetricCard
-                label="Spent"
+                label="Total Actuals"
                 value={fmtCurrency(totalActual)}
                 sub={`EV: ${fmtCurrency(totalEV)}`}
                 color="#0f766e"
               />
               <MetricCard
-                label="Available"
+                label="Remaining"
                 value={fmtCurrency(totalRemaining)}
                 sub={`${availablePct.toFixed(1)}% of budget`}
                 color={gaugeColor}
@@ -1913,13 +1913,22 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
   }
 
   // Label + value layout helper
-  function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  function Field({ label, children, tip }: { label: string; children: React.ReactNode; tip?: string }) {
     return (
       <div style={{ marginBottom: 8 }}>
         <div style={{
           fontSize: 13, fontWeight: 600, color: "#1f2937",
           letterSpacing: "0em", marginBottom: 4,
-        }}>{label}</div>
+          display: "flex", alignItems: "center",
+        }}>
+          {label}
+          {tip && (
+            <span title={tip} style={{
+              marginLeft: 5, cursor: "help", color: "#9ca3af",
+              fontSize: 13, lineHeight: 1,
+            }}>ⓘ</span>
+          )}
+        </div>
         {children}
       </div>
     );
@@ -1936,13 +1945,16 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
     );
   }
 
-  function MetricCard({ label, value, color }: { label: string; value: string; color?: string }) {
+  function MetricCard({ label, value, color, tip }: { label: string; value: string; color?: string; tip?: string }) {
     return (
       <div style={{
         background: "white", border: "1px solid #e5e7eb", borderRadius: 6,
         padding: "7px 10px", flex: 1,
       }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", letterSpacing: "0em" }}>{label}</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", letterSpacing: "0em", display: "flex", alignItems: "center" }}>
+          {label}
+          {tip && <span title={tip} style={{ marginLeft: 4, cursor: "help", color: "#9ca3af", fontSize: 12 }}>ⓘ</span>}
+        </div>
         <div style={{ fontSize: 14, fontWeight: 700, color: color ?? "#111827", marginTop: 3 }}>{value}</div>
       </div>
     );
@@ -2002,7 +2014,10 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
             <ReadOnlyField label="Finish"      value={formatDate(task.endDate)} />
             <ReadOnlyField label="% Complete"  value={`${(task.pctDone ?? 0).toFixed(1)}%`} />
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 6 }}>Assigned to</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", marginBottom: 6, display: "flex", alignItems: "center" }}>
+              Assigned to
+              <span title="Team members assigned to this task. Managed via the project scheduling engine." style={{ marginLeft: 5, cursor: "help", color: "#9ca3af", fontSize: 13 }}>ⓘ</span>
+            </div>
               <div style={{ padding: "4px 0" }}>
                 <ResourceCell resources={resources} />
               </div>
@@ -2012,7 +2027,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
           <div style={{ height: 1, background: "#f3f4f6", margin: "4px 0 16px" }} />
 
           {/* Editable fields */}
-          <Field label="Funding Source">
+          <Field label="Funding Source" tip="The budget line funding this task. Regular Budget = core UN budget · PK + Support Account = peacekeeping support · xB = extrabudgetary · 10RCR = cost recovery · 20PCR = peacekeeping cost recovery.">
             <select style={selectStyle}
               value={current.fundingSource ?? ""}
               onChange={e => { const val = e.target.value === "" ? null : Number(e.target.value); setLocal(prev => ({ ...prev, fundingSource: val })); }}>
@@ -2023,7 +2038,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
             </select>
           </Field>
 
-          <Field label="Cost Category">
+          <Field label="Cost Category" tip="UN cost classification for this task. Staff = personnel costs · Supplies = consumables · Equipment = assets and vehicles · Contractual = external services · Travel = mission travel · Indirect = overhead costs.">
             <select style={selectStyle}
               value={current.costCategory ?? ""}
               onChange={e => { const val = e.target.value === "" ? null : Number(e.target.value); setLocal(prev => ({ ...prev, costCategory: val })); }}>
@@ -2034,7 +2049,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
             </select>
           </Field>
 
-          <Field label="Service">
+          <Field label="Service" tip="Links this task to a Service Rate Card entry. Selecting a service automatically fills the Unit Rate and Unit fields. Search by service code, name, fiscal year, or entity.">
             <div style={{ width: "100%" }}>
               <ServiceCombobox
                 value={current.srcServiceId ?? null}
@@ -2045,15 +2060,15 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
           </Field>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            <Field label="Effort (h)">
+            <Field label="Effort (h)" tip="Total planned hours assigned to this task. (Planned Cost = Effort × Unit Rate)">
               <input style={{ ...inputStyle, background: "#f9fafb", color: "#6b7280" }}
                 value={current.quantity ?? ""} readOnly />
             </Field>
-            <Field label="Unit">
+            <Field label="Unit" tip="The billing unit for the selected service (e.g. Staff, Hour, Day). Filled automatically when a service is selected.">
               <input style={{ ...inputStyle, background: "#f9fafb", color: "#6b7280" }}
                 value={current.unit ?? ""} readOnly />
             </Field>
-            <Field label="Unit Rate">
+            <Field label="Unit Rate" tip="Cost per hour for this task. Pulled automatically from the Service Rate Card when a service is selected.">
               <input ref={unitRateRef} style={inputStyle} 
                 type="text" inputMode="decimal"
                 defaultValue={savedUnitRate ?? localUnitRate}
@@ -2065,7 +2080,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <Field label="Fixed Cost ($)">
+            <Field label="Fixed Cost ($)" tip="A one-off cost independent of effort hours. Examples: equipment, travel, venue hire.">
              <input ref={fixedCostRef} style={inputStyle}
                 type="text" inputMode="decimal"
                 defaultValue={savedFixedCost ?? localFixedCost}
@@ -2074,7 +2089,7 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commitFixedCost(); } }}
               />
             </Field>
-            <Field label="Actual Fixed Cost ($)">
+            <Field label="Actual Fixed Cost ($)" tip="Fixed costs already incurred. Enter manually as invoices or expenses are confirmed.">
               <input ref={actualFixedRef} style={inputStyle}
                 type="text" inputMode="decimal"
                 defaultValue={savedActualFixed ?? localActualFixed}
@@ -2090,10 +2105,10 @@ const TaskDetailPanel = React.memo(function TaskDetailPanel({
           {/* Computed metrics */}
           <div style={{ fontSize: 13, fontWeight: 600, color: "#1f2937", letterSpacing: "0em", marginBottom: 6 }}>Computed</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
-            <MetricCard label="Planned Cost"     value={fmtCurrency(current.totalPlannedCost ?? 0)} color="#4f46e5" />
-            <MetricCard label="Actual Cost"      value={fmtCurrency(current.totalActualCost  ?? 0)} color="#0f766e" />
-            <MetricCard label="Remaining"        value={fmtCurrency(current.remainingCost    ?? 0)} color={(current.remainingCost ?? 0) < 0 ? "#dc2626" : "#374151"} />
-            <MetricCard label="Earned Value"     value={fmtCurrency(current.earnedValue      ?? 0)} color="#374151" />
+            <MetricCard label="Planned Cost"  value={fmtCurrency(current.totalPlannedCost ?? 0)} color="#1e40af"  tip="Full budgeted cost for this task. (Planned Cost = Effort × Unit Rate + Fixed Cost)" />
+            <MetricCard label="Actual Cost"   value={fmtCurrency(current.totalActualCost  ?? 0)} color="#0f766e"  tip="Total spent to date. (Actual Cost = Completed (h) × Unit Rate + Actual Fixed Cost)" />
+            <MetricCard label="Remaining"     value={fmtCurrency(current.remainingCost    ?? 0)} color={(current.remainingCost ?? 0) < 0 ? "#dc2626" : "#374151"} tip="Budget still available. Negative means the task has overrun. (Remaining = Planned Cost − Actual Cost)" />
+            <MetricCard label="Earned Value"  value={fmtCurrency(current.earnedValue      ?? 0)} color="#374151"  tip="Monetary value of work actually completed. If EV is below actual cost, you are spending more than the work is worth. (EV = % Complete × Total Planned)" />
           </div>
 
           {error && (
